@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +10,9 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { searchProperties, searchDatabaseProperties, PropertySearchParams } from "@/utils/propertyApi";
+import { searchZooplaProperties, MappedProperty } from "@/utils/zoopla-api";
+// Import PropertyData API (commented out to avoid exceeding limits)
+// import { searchProperties, searchDatabaseProperties, PropertySearchParams } from "@/utils/propertyApi";
 import { supabase } from "@/integrations/supabase/client";
 import { 
   MapPin, 
@@ -28,7 +29,7 @@ import {
 import { CrawlerProgress } from "./PropertyCrawler/CrawlerProgress";
 import { UnifiedSearchParams, CrawlerParams } from "./PropertyCrawler/types";
 import { PropertyListing } from "@/types/property";
-
+import { analyzeProperty } from "@/utils/openai-api";
 interface UnifiedPropertySearchProps {
   onPropertiesFound: (properties: PropertyListing[]) => void;
   onSearchStart?: () => void;
@@ -50,7 +51,7 @@ export const UnifiedPropertySearch = ({
     maxBeds: "",
     maxPages: 3,
     analysisThreshold: 65,
-    searchMode: "database"
+    searchMode: "zoopla"
   });
   
   const [loading, setLoading] = useState(false);
@@ -65,8 +66,8 @@ export const UnifiedPropertySearch = ({
   };
 
   const handleApiSearch = async () => {
-    if (!params.location.trim()) {
-      toast.error("Please enter a location to search");
+    if (!params.location.trim() && !params.searchTerm.trim()) {
+      toast.error("Please enter a location or search term");
       return;
     }
 
@@ -74,90 +75,94 @@ export const UnifiedPropertySearch = ({
     onSearchStart?.();
 
     try {
-      console.log("Starting UK property API search for:", params.location);
+      const searchTerm = params.location.trim() || params.searchTerm.trim();
+      console.log("Starting Zoopla API search for:", searchTerm);
       
-      const apiParams: PropertySearchParams = {
-        area: params.location,
-        page_size: "20"
-      };
+      const mappedProperties = await searchZooplaProperties(searchTerm);
       
-      if (params.propertyType) apiParams.property_type = params.propertyType;
-      if (params.minPrice) apiParams.min_price = params.minPrice;
-      if (params.maxPrice) apiParams.max_price = params.maxPrice;
-      if (params.minBeds) apiParams.min_bedrooms = params.minBeds;
-      if (params.maxBeds) apiParams.max_bedrooms = params.maxBeds;
-
-      const result = await searchProperties(apiParams);
+      const filteredProperties = mappedProperties.filter(property => {
+        if (params.propertyType && property.propertyType !== params.propertyType) return false;
+        if (params.minPrice && property.price < Number(params.minPrice)) return false;
+        if (params.maxPrice && property.price > Number(params.maxPrice)) return false;
+        if (params.minBeds && property.bedrooms && property.bedrooms < Number(params.minBeds)) return false;
+        if (params.maxBeds && property.bedrooms && property.bedrooms > Number(params.maxBeds)) return false;
+        return true;
+      });
       
-      console.log(`Found ${result.data.length} properties from API search`);
+      console.log(`Found ${filteredProperties.length} properties from Zoopla search`);
       
-      const propertyListings: PropertyListing[] = result.data.map(property => ({
-        id: property.id,
-        address: property.address,
-        price: property.price,
-        bedrooms: property.bedrooms,
-        bathrooms: property.bathrooms,
-        square_feet: property.square_feet,
-        image_url: property.image_url,
-        source: 'uk-api',
-        listing_url: '',
-        created_at: property.created_at,
-        updated_at: property.updated_at,
-        roi_estimate: null,
-        rental_estimate: null,
-        investment_highlights: null,
-        investment_score: null,
-        ai_analysis: null,
-        market_analysis: null,
-        bidding_recommendation: null,
-        last_sold_price: null,
-        price_history: null,
-        market_trends: null,
-        description: property.description,
-        property_type: property.property_type,
-        agent: property.agent
-      }));
-      
-      onPropertiesFound(propertyListings);
-      toast.success(`Found ${propertyListings.length} properties in ${params.location}`);
-    } catch (error: any) {
-      console.error("API search error:", error);
-      toast.error(error.message || "Error searching for properties");
-      onPropertiesFound([]);
-    } finally {
-      setLoading(false);
-      onSearchComplete?.();
-    }
-  };
-
-  const handleDatabaseSearch = async () => {
-    setLoading(true);
-    onSearchStart?.();
-
-    try {
-      console.log("Starting database search for:", params.searchTerm);
-      
-      // Include filters in the database search
-      const filters: Partial<PropertySearchParams> = {};
-      
-      if (params.propertyType) filters.property_type = params.propertyType;
-      if (params.minPrice) filters.min_price = params.minPrice;
-      if (params.maxPrice) filters.max_price = params.maxPrice;
-      if (params.minBeds) filters.min_bedrooms = params.minBeds;
-      if (params.maxBeds) filters.max_bedrooms = params.maxBeds;
-      
-      const properties = await searchDatabaseProperties(params.searchTerm, filters);
-      console.log(`Found ${properties.length} properties in database with filters applied`);
-      onPropertiesFound(properties);
-      
-      if (properties.length === 0) {
-        toast.info("No properties found matching your search. Try using the crawler to find more properties!");
-      } else {
-        toast.success(`Found ${properties.length} properties`);
+      // Process properties with OpenAI analysis
+      try {
+        // We'll use Promise.allSettled instead of Promise.all to handle partial failures
+        const propertyAnalysisResults = await Promise.allSettled(
+          filteredProperties.map(async property => {
+            // Get AI analysis for the property
+            const analysis = await analyzeProperty(property);
+            
+            return {
+              id: property.id,
+              address: property.address,
+              price: property.price,
+              bedrooms: property.bedrooms,
+              bathrooms: property.bathrooms,
+              square_feet: property.square_feet,
+              image_url: property.image_url,
+              source: 'zoopla',
+              listing_url: property.url || '',
+              created_at: property.dateAdded,
+              updated_at: property.listedSince,
+              roi_estimate: analysis.roi_estimate,
+              rental_estimate: analysis.rental_estimate,
+              investment_highlights: analysis.investment_highlights,
+              investment_score: analysis.investment_score,
+              ai_analysis: {
+                summary: analysis.summary,
+                recommendation: analysis.recommendation
+              },
+              market_analysis: analysis.market_analysis,
+              bidding_recommendation: analysis.bidding_recommendation,
+              last_sold_price: null,
+              price_history: { 
+                dates: [], 
+                prices: [] 
+              },
+              market_trends: {
+                appreciation_rate: property.marketTrends?.appreciation_rate || 3.2,
+                market_activity: property.marketTrends?.market_activity || "Moderate"
+              },
+              description: property.description,
+              property_type: property.propertyType,
+              agent: property.agent,
+              latitude: property.location?.latitude,
+              longitude: property.location?.longitude,
+              property_details: property.propertyDetails
+            };
+          })
+        );
+        
+        // Filter out any properties where the AI analysis failed
+        const propertyListings = propertyAnalysisResults
+          .filter(result => result.status === 'fulfilled')
+          .map(result => (result as PromiseFulfilledResult<PropertyListing>).value);
+        
+        if (propertyListings.length === 0) {
+          throw new Error("OpenAI analysis failed for all properties. Please check your OpenAI API key configuration.");
+        }
+        
+        if (propertyListings.length < filteredProperties.length) {
+          toast.warning(`OpenAI analysis failed for ${filteredProperties.length - propertyListings.length} properties. Showing ${propertyListings.length} successfully analyzed properties.`);
+        }
+        
+        onPropertiesFound(propertyListings);
+        toast.success(`Found ${propertyListings.length} properties via Zoopla with OpenAI analysis`);
+      } catch (error) {
+        console.error("OpenAI analysis error:", error);
+        toast.error(`OpenAI analysis failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+        onPropertiesFound([]);
       }
-    } catch (error: any) {
-      console.error("Database search error:", error);
-      toast.error(error.message || "Error searching for properties");
+    } catch (error) {
+      console.error("Zoopla API search error:", error);
+      toast.error(error instanceof Error ? error.message : "Error searching for properties");
       onPropertiesFound([]);
     } finally {
       setLoading(false);
@@ -202,23 +207,90 @@ export const UnifiedPropertySearch = ({
         setProgress(100);
         toast.success(`Found ${data.propertiesFound} high-value properties.`);
         
-        // Include filters when fetching results from the crawler
-        const filters: Partial<PropertySearchParams> = {};
-        if (params.propertyType) filters.property_type = params.propertyType;
-        if (params.minPrice) filters.min_price = params.minPrice;
-        if (params.maxPrice) filters.max_price = params.maxPrice;
-        if (params.minBeds) filters.min_bedrooms = params.minBeds;
-        if (params.maxBeds) filters.max_bedrooms = params.maxBeds;
+        const filters: Record<string, string> = {};
+        if (params.propertyType) filters.propertyType = params.propertyType;
+        if (params.minPrice) filters.minPrice = params.minPrice;
+        if (params.maxPrice) filters.maxPrice = params.maxPrice;
+        if (params.minBeds) filters.minBeds = params.minBeds;
+        if (params.maxBeds) filters.maxBeds = params.maxBeds;
         
-        const properties = await searchDatabaseProperties('', filters);
+        const zooplaProperties = await searchZooplaProperties('');
         
-        onPropertiesFound(properties || []);
+        try {
+          // Map Zoopla properties to PropertyListing format with OpenAI analysis
+          // Using Promise.allSettled to handle partial failures
+          const propertyAnalysisResults = await Promise.allSettled(
+            zooplaProperties.map(async property => {
+              // Get AI analysis for the property
+              const analysis = await analyzeProperty(property);
+              
+              return {
+                id: property.id,
+                address: property.address,
+                price: property.price,
+                bedrooms: property.bedrooms,
+                bathrooms: property.bathrooms,
+                square_feet: property.square_feet,
+                image_url: property.image_url,
+                source: 'zoopla',
+                listing_url: property.url || '',
+                created_at: property.dateAdded || new Date().toISOString(),
+                updated_at: property.listedSince || new Date().toISOString(),
+                roi_estimate: analysis.roi_estimate,
+                rental_estimate: analysis.rental_estimate,
+                investment_highlights: analysis.investment_highlights,
+                investment_score: analysis.investment_score,
+                ai_analysis: {
+                  summary: analysis.summary,
+                  recommendation: analysis.recommendation
+                },
+                market_analysis: analysis.market_analysis,
+                bidding_recommendation: analysis.bidding_recommendation,
+                last_sold_price: null,
+                price_history: { 
+                  dates: [], 
+                  prices: [] 
+                },
+                market_trends: {
+                  appreciation_rate: property.marketTrends?.appreciation_rate || 3.2,
+                  market_activity: property.marketTrends?.market_activity || "Moderate"
+                },
+                description: property.description,
+                property_type: property.propertyType,
+                agent: property.agent,
+                latitude: property.location?.latitude,
+                longitude: property.location?.longitude,
+                property_details: property.propertyDetails
+              };
+            })
+          );
+          
+          // Filter out any properties where the AI analysis failed
+          const propertyListings = propertyAnalysisResults
+            .filter(result => result.status === 'fulfilled')
+            .map(result => (result as PromiseFulfilledResult<PropertyListing>).value);
+          
+          if (propertyListings.length === 0) {
+            throw new Error("OpenAI analysis failed for all properties. Please check your OpenAI API key configuration.");
+          }
+          
+          if (propertyListings.length < zooplaProperties.length) {
+            toast.warning(`OpenAI analysis failed for ${zooplaProperties.length - propertyListings.length} properties. Showing ${propertyListings.length} successfully analyzed properties.`);
+          }
+          
+          onPropertiesFound(propertyListings);
+          toast.success(`Found ${propertyListings.length} properties with OpenAI analysis`);
+        } catch (error) {
+          console.error("OpenAI analysis error:", error);
+          toast.error(`OpenAI analysis failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+          onPropertiesFound([]);
+        }
       } else {
         throw new Error(data.error || "Failed to crawl properties");
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Crawler error:", error);
-      toast.error(error.message || "Failed to run property crawler");
+      toast.error(error instanceof Error ? error.message : "Failed to run property crawler");
       onPropertiesFound([]);
     } finally {
       setLoading(false);
@@ -230,15 +302,14 @@ export const UnifiedPropertySearch = ({
     e.preventDefault();
     
     switch(params.searchMode) {
-      case "api":
+      case "zoopla":
         handleApiSearch();
         break;
       case "crawler":
         handleCrawlerSearch();
         break;
-      case "database":
       default:
-        handleDatabaseSearch();
+        handleApiSearch();
         break;
     }
   };
@@ -259,24 +330,15 @@ export const UnifiedPropertySearch = ({
       <form onSubmit={handleSearch} className="space-y-4">
         <div className="flex flex-col gap-2 mb-2">
           <Label className="font-medium">Search Mode</Label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
-              variant={params.searchMode === "database" ? "default" : "outline"}
-              onClick={() => handleChange('searchMode', "database")}
+              variant={params.searchMode === "zoopla" ? "default" : "outline"}
+              onClick={() => handleChange('searchMode', "zoopla")}
               className="flex-1 flex items-center justify-center gap-2"
             >
               <Search className="h-4 w-4" />
-              Database
-            </Button>
-            <Button
-              type="button"
-              variant={params.searchMode === "api" ? "default" : "outline"}
-              onClick={() => handleChange('searchMode', "api")}
-              className="flex-1 flex items-center justify-center gap-2"
-            >
-              <MapPin className="h-4 w-4" />
-              API
+              Zoopla
             </Button>
             <Button
               type="button"
@@ -290,7 +352,7 @@ export const UnifiedPropertySearch = ({
           </div>
         </div>
 
-        {params.searchMode === "database" && (
+        {params.searchMode === "zoopla" && (
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -303,7 +365,7 @@ export const UnifiedPropertySearch = ({
           </div>
         )}
 
-        {(params.searchMode === "api" || params.searchMode === "crawler") && (
+        {(params.searchMode === "zoopla" || params.searchMode === "crawler") && (
           <div className="space-y-4">
             <div className="relative">
               <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />

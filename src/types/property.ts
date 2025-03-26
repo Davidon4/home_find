@@ -1,3 +1,28 @@
+interface InvestmentHighlights {
+  location: string;
+  type: string;
+  features: string;
+}
+
+interface AIAnalysis {
+  summary: string;
+  recommendation: string;
+}
+
+interface MarketAnalysis {
+  trend: string;
+  demand: string;
+}
+
+interface PriceHistory {
+  dates: string[];
+  prices: number[];
+}
+
+interface MarketTrends {
+  appreciation_rate: number;
+  market_activity: string;
+}
 
 export interface PropertyListing {
   id: string;
@@ -9,7 +34,7 @@ export interface PropertyListing {
   image_url: string | null;
   roi_estimate: number | null;
   rental_estimate: number | null;
-  investment_highlights: any;
+  investment_highlights: InvestmentHighlights;
   investment_score: number | null;
   created_at: string;
   updated_at: string;
@@ -21,12 +46,21 @@ export interface PropertyListing {
     name: string;
     phone: string;
   };
-  ai_analysis: any;
-  market_analysis: any;
+  ai_analysis: AIAnalysis;
+  market_analysis: MarketAnalysis;
   bidding_recommendation: number | null;
   last_sold_price: number | null;
-  price_history: any;
-  market_trends: any;
+  price_history: PriceHistory;
+  market_trends: MarketTrends;
+  property_details?: {
+    market_demand: string;
+    area_growth: string;
+    crime_rate: string;
+    nearby_schools: number;
+    property_features: string[];
+    energy_rating: string;
+    council_tax_band: string;
+  }
 }
 
 export interface ScrapedProperty {

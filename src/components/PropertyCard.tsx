@@ -1,4 +1,3 @@
-
 import { PropertyListing } from "@/types/property";
 import { getBidRecommendation, formatCurrency, getRandomPlaceholder } from "@/utils/propertyUtils";
 import { Button } from "@/components/ui/button";
@@ -6,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { DollarSign, LineChart, TrendingUp, Globe } from "lucide-react";
 import { PropertyAnalysis } from "@/components/PropertyAnalysis";
 import { RentalEstimate } from "@/components/RentalEstimate";
+
+
 
 interface PropertyCardProps {
   property: PropertyListing;
@@ -107,15 +108,59 @@ export const PropertyCard = ({ property }: PropertyCardProps) => {
               <span className="text-sm font-medium">Market Trends</span>
             </div>
             <div className="text-sm text-gray-600">
-              Area appreciation: {(property.market_trends as any).appreciation_rate}% yearly
+              Area appreciation: {property.market_trends?.appreciation_rate}% yearly
             </div>
           </div>
         )}
 
-        <PropertyAnalysis 
-          propertyId={property.id} 
-          currentScore={property.investment_score} 
-        />
+<PropertyAnalysis 
+  propertyId={property.id}
+  currentScore={property.investment_score}
+  price={property.price}
+  bedrooms={property.bedrooms}
+  bathrooms={property.bathrooms}
+  square_feet={property.square_feet}
+  address={property.address}
+/>
+
+        {property.property_details && (
+          <div className="mt-4 space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              {property.property_details.market_demand && (
+                <div className="p-2 bg-blue-50 dark:bg-blue-950 rounded">
+                  <span className="text-xs text-muted-foreground">Market Demand</span>
+                  <span className="font-medium">{property.property_details.market_demand}</span>
+                </div>
+              )}
+              {property.property_details.area_growth && (
+                <div className="p-2 bg-green-50 dark:bg-green-950 rounded">
+                  <span className="text-xs text-muted-foreground">Area Growth</span>
+                  <span className="font-medium">{property.property_details.area_growth}</span>
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {property.property_details.crime_rate && (
+                <div className="p-2 bg-red-50 dark:bg-red-950 rounded">
+                  <span className="text-xs text-muted-foreground">Crime Rate</span>
+                  <span className="font-medium">{property.property_details.crime_rate}</span>
+                </div>
+              )}
+              {property.property_details.nearby_schools && (
+                <div className="p-2 bg-purple-50 dark:bg-purple-950 rounded">
+                  <span className="text-xs text-muted-foreground">Nearby Schools</span>
+                  <span className="font-medium">{property.property_details.nearby_schools}</span>
+                </div>
+              )}
+            </div>
+            {property.property_details.energy_rating && (
+              <div className="p-2 bg-gray-50 dark:bg-gray-950 rounded">
+                <span className="text-xs text-muted-foreground">Energy Rating</span>
+                <span className="font-medium">{property.property_details.energy_rating}</span>
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
 
       <CardFooter className="flex flex-col space-y-3">

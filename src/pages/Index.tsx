@@ -1,43 +1,168 @@
-
 import { useState, useEffect } from "react";
 import { Search, Home, DollarSign, Key, Building, Star, Check, Users, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link, useNavigate } from "react-router-dom";
-import { searchProperties, type UKProperty } from "@/utils/propertyApi";
+import { searchProperties } from "@/utils/propertyApi";
 import { toast } from "sonner";
 import { Header } from "@/components/Header";
 import { getRandomPlaceholder } from "@/utils/propertyUtils";
 import { PropertyTabs } from "@/components/PropertyTabs";
 import { Testimonials } from "@/components/Testimonials";
 import { Footer } from "@/components/Footer";
+import { fetchAllProperties, MappedProperty } from "@/utils/zoopla-api";
+import { 
+  Carousel, 
+  CarouselContent, 
+  CarouselItem, 
+  CarouselNext, 
+  CarouselPrevious,
+  CarouselApi
+} from "@/components/ui/carousel";
+
+const heroImages = [
+  "/uk-property.jpg",
+  "/uk-property01.jpg",
+  "/uk-property02.jpg",
+  "/uk-property03.jpg"
+];
 
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [featuredProperties, setFeaturedProperties] = useState<UKProperty[]>([]);
+  const [featuredProperties, setFeaturedProperties] = useState<MappedProperty[]>([]);
   const [loading, setLoading] = useState(false);
+  const [api, setApi] = useState<CarouselApi>();
+  const [useApi, setUseApi] = useState(false);
   const navigate = useNavigate();
+
+  // Mock data for featured properties
+  const mockProperties: MappedProperty[] = [
+    {
+      id: '1',
+      address: '123 London Road, London',
+      price: 750000,
+      bedrooms: 3,
+      bathrooms: 2,
+      square_feet: 1500,
+      image_url: 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914',
+      propertyType: 'House',
+      description: 'Beautiful 3-bedroom house in London',
+      features: ['Garden', 'Parking', 'Modern Kitchen'],
+      // images: ['https://images.unsplash.com/photo-1580587771525-78b9dba3b914'],
+      agent: {
+        name: 'London Estates',
+        phone: '020 1234 5678'
+      },
+      location: {
+        latitude: 51.5074,
+        longitude: -0.1278
+      },
+      dateAdded: new Date().toISOString(),
+      listedSince: new Date().toISOString(),
+      roi_estimate: 0.07
+    },
+    {
+      id: '2',
+      address: '456 Manchester Avenue, Manchester',
+      price: 550000,
+      bedrooms: 4,
+      bathrooms: 2,
+      square_feet: 1800,
+      image_url: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994',
+      propertyType: 'Semi-Detached',
+      description: 'Spacious family home in Manchester',
+      features: ['Large Garden', 'Double Garage', 'Conservatory'],
+      // images: ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
+      agent: {
+        name: 'Manchester Properties',
+        phone: '0161 234 5678'
+      },
+      location: {
+        latitude: 53.4808,
+        longitude: -2.2426
+      },
+      dateAdded: new Date().toISOString(),
+      listedSince: new Date().toISOString(),
+      roi_estimate: 0.085
+    },
+    {
+      id: '3',
+      address: '789 Birmingham Street, Birmingham',
+      price: 450000,
+      bedrooms: 3,
+      bathrooms: 2,
+      square_feet: 1200,
+      image_url: 'https://images.unsplash.com/photo-1570129477492-45c003edd2be',
+      propertyType: 'Terraced',
+      description: 'Modern terraced house in Birmingham',
+      features: ['Recently Renovated', 'City Centre', 'Smart Home'],
+      // images: ['https://images.unsplash.com/photo-1570129477492-45c003edd2be'],
+      agent: {
+        name: 'Birmingham Realty',
+        phone: '0121 234 5678'
+      },
+      location: {
+        latitude: 52.4862,
+        longitude: -1.8904
+      },
+      dateAdded: new Date().toISOString(),
+      listedSince: new Date().toISOString(),
+      roi_estimate: 0.075
+    }
+  ];
 
   useEffect(() => {
     const loadFeaturedProperties = async () => {
       try {
         setLoading(true);
-        const { data } = await searchProperties({
-          area: "London",
-          page_size: "3",
-          ordering: "desc"
-        });
-        setFeaturedProperties(data);
+        
+        if (useApi) {
+          console.log("Attempting to fetch from Zoopla API...");
+          const properties = await fetchAllProperties();
+          
+          if (properties && properties.length > 0) {
+            const topProperties = properties
+              .sort((a, b) => b.price - a.price)
+              .slice(0, 3);
+            setFeaturedProperties(topProperties);
+            return;
+          }
+          
+          console.log("No properties returned from API, falling back to mock data");
+        }
+        
+        setFeaturedProperties(mockProperties);
+        
       } catch (error) {
         console.error('Error loading featured properties:', error);
-        toast.error("Failed to load featured properties");
+        toast.error("Failed to load properties from API, using mock data");
+        setFeaturedProperties(mockProperties);
       } finally {
         setLoading(false);
       }
     };
 
     loadFeaturedProperties();
-  }, []);
+  }, [useApi]);
+
+  useEffect(() => {
+    if (!api) return;
+
+    api.on("select", () => {
+      // Optional: Add any effects when slide changes
+    });
+  }, [api]);
+
+  // Auto-play effect
+  useEffect(() => {
+    if (!api) return;
+
+    const interval = setInterval(() => {
+      api.scrollNext();
+    }, 5000); // Change slide every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [api]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +175,15 @@ const Index = () => {
     event.currentTarget.src = getRandomPlaceholder();
   };
 
+  // Add error handling for images
+  const handleBackgroundError = (index: number) => {
+    const fallbackImage = "/uk-property.jpg";
+    const element = document.querySelector(`[data-carousel-item="${index}"] div`);
+    if (element) {
+      (element as HTMLElement).style.backgroundImage = `url(${fallbackImage})`;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
       {/* Navigation */}
@@ -57,8 +191,32 @@ const Index = () => {
 
       {/* Hero Section */}
       <div className="relative pt-16">
-        <div className="absolute inset-0 bg-[url('/lovable-uploads/1a5a7ab5-ceed-42ad-9987-dbee4e73d818.png')] bg-cover bg-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"></div>
+        <div className="absolute inset-0 overflow-hidden">
+          <Carousel 
+            className="h-full" 
+            opts={{ loop: true, duration: 20 }} 
+            setApi={setApi}
+          >
+            <CarouselContent className="h-full">
+              {heroImages.map((image, index) => (
+                <CarouselItem key={index} className="h-full" data-carousel-item={index}>
+                  <div className="w-full h-full relative">
+                    <img 
+                      src={image}
+                      alt={`Hero image ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    onError={() => handleBackgroundError(index)}
+                    />
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"></div>
+                  </div>
+                </CarouselItem>
+              ))}
+            </CarouselContent>
+            <div className="absolute bottom-4 right-4 flex gap-2">
+              <CarouselPrevious className="relative -left-0 bg-white/20 hover:bg-white/40 text-white border-white/40" />
+              <CarouselNext className="relative -right-0 bg-white/20 hover:bg-white/40 text-white border-white/40" />
+            </div>
+          </Carousel>
         </div>
         
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-40">
@@ -109,7 +267,11 @@ const Index = () => {
         ) : (
           <div className="grid md:grid-cols-3 gap-8">
             {featuredProperties.map((property) => (
-              <div key={property.id} className="group rounded-lg overflow-hidden shadow-md hover:shadow-xl transition duration-300">
+              <div 
+                key={property.id} 
+                className="group rounded-lg overflow-hidden shadow-md hover:shadow-xl transition duration-300 cursor-pointer"
+                onClick={() => navigate(`/invest?property=${property.id}`)}
+              >
                 <div className="relative">
                   <img
                     src={property.image_url || getRandomPlaceholder()}
@@ -125,6 +287,11 @@ const Index = () => {
                       {property.square_feet && ` • ${property.square_feet} sqft`}
                     </p>
                   </div>
+                  {property.roi_estimate && (
+                    <div className="absolute top-4 right-4 bg-primary/90 text-white px-3 py-1 rounded-full text-sm font-medium">
+                      ROI: {(property.roi_estimate * 100).toFixed(1)}%
+                    </div>
+                  )}
                 </div>
                 
                 <div className="p-4 bg-white">
@@ -132,8 +299,12 @@ const Index = () => {
                     {property.address}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    {property.property_type || 'Residential'}
+                    {property.propertyType || 'Residential'}
                   </p>
+                  <div className="mt-3 flex items-center gap-2 text-sm text-gray-500">
+                    <DollarSign className="h-4 w-4 text-primary" />
+                    <span>Estimated monthly rental: £{(property.price * 0.004).toLocaleString()}</span>
+                  </div>
                 </div>
               </div>
             ))}
