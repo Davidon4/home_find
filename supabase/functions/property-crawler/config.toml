@@ -1,0 +1,5 @@
+
+project_id = "zwssddqsrjrbjlbakbdc"
+
+[build]
+builder = "supabase/functions"
