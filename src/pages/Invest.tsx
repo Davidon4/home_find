@@ -5,15 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { DollarSign, Home, TrendingUp, Clock, LineChart, Search, XCircle, Filter, MapPin } from "lucide-react";
 import { toast } from "sonner";
-import { PropertyAnalysis } from "@/components/PropertyAnalysis";
-import { RentalEstimate } from "@/components/RentalEstimate";
 import { Link } from "react-router-dom";
 import { PropertySearch } from "@/components/PropertySearch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ZooplaProperty, MappedProperty, fetchAllProperties, searchZooplaProperties } from "@/utils/zoopla-api";
-// Commenting out PropertyData import to avoid using it
+import { MappedProperty, fetchAllProperties, searchRightmoveProperties } from "@/utils/rightmove-api";
 import { UKProperty, searchDatabaseProperties } from "@/utils/propertyApi";
-import { analyzeProperty, PropertyAnalysisResult } from "@/utils/openai-api";
 import { Session } from "@supabase/supabase-js";
 import { PropertyProposalDialog } from "@/components/PropertyProposalDialog";
 
@@ -177,12 +173,13 @@ const Invest = () => {
   const [isProposalDialogOpen, setIsProposalDialogOpen] = useState(false);
   const navigate = useNavigate();
 
-  const API_BASE_URL = "https://zoopla-data.onrender.com/api";
+  const API_BASE_URL = "";
 
-  const mapToPropertyListing = async (property: MappedProperty): Promise<PropertyListing> => {
-    // Use OpenAI to analyze the property
-    // No try-catch here to let any OpenAI errors propagate up to the caller
-    const analysis = await analyzeProperty(property);
+  const mapToPropertyListing = (property: MappedProperty): PropertyListing => {
+    const rentalEstimate = property.rental_estimate || 
+      calculateRentalEstimate(property.price, property.bedrooms, property.propertyType);
+    const roiEstimate = property.roi_estimate || 
+      calculateROI(property.price, rentalEstimate);
     
     return {
       id: property.id,
@@ -192,35 +189,44 @@ const Invest = () => {
       bathrooms: property.bathrooms,
       square_feet: property.square_feet,
       image_url: property.image_url,
-      roi_estimate: analysis.roi_estimate,
-      rental_estimate: analysis.rental_estimate,
-      investment_highlights: analysis.investment_highlights,
-      investment_score: analysis.investment_score,
+      roi_estimate: roiEstimate,
+      rental_estimate: rentalEstimate,
+      investment_highlights: {
+        location: property.address,
+        type: property.propertyType,
+        features: Array.isArray(property.features) ? property.features.slice(0, 3).join(", ") : ""
+      },
+      investment_score: calculateInvestmentScore(property),
       created_at: property.dateAdded,
       updated_at: property.listedSince,
-      source: "zoopla",
+      source: "rightmove",
       listing_url: property.url || "#",
       description: property.description,
       property_type: property.propertyType,
       agent: property.agent,
       ai_analysis: {
-        summary: analysis.summary,
-        recommendation: analysis.recommendation
+        summary: "Analysis not available for this property",
+        recommendation: "Consider researching the area further"
       },
-      market_analysis: analysis.market_analysis,
-      bidding_recommendation: analysis.bidding_recommendation,
+      market_analysis: {
+        trend: "Market data not available",
+        demand: "Unknown"
+      },
+      bidding_recommendation: property.price * 0.95,
       last_sold_price: null,
-      price_history: { 
-        dates: [], 
-        prices: [] 
-      },
-      market_trends: {
-        appreciation_rate: property.marketTrends?.appreciation_rate || 3.2,
-        market_activity: property.marketTrends?.market_activity || "Moderate"
-      },
+      price_history: null,
       latitude: property.location?.latitude,
       longitude: property.location?.longitude,
-      property_details: property.propertyDetails
+      property_details: property.propertyDetails,
+      market_trends: property.marketTrends ? 
+        { 
+          appreciation_rate: property.marketTrends.appreciation_rate || 3.2,
+          market_activity: property.marketTrends.market_activity || "Moderate" 
+        } : 
+        {
+          appreciation_rate: 3.2,
+          market_activity: "Moderate"
+        }
     };
   };
 
@@ -280,29 +286,14 @@ const Invest = () => {
   const searchProperties = async (searchTerm: string) => {
     setLoading(true);
     try {
-      // Option 1: Use Zoopla API (active)
-      console.log("Starting Zoopla API search for:", searchTerm);
-      const mappedProperties = await searchZooplaProperties(searchTerm);
-      
-      try {
-        // Process properties asynchronously with OpenAI analysis
-        const analysisPromises = mappedProperties.map(mapToPropertyListing);
-        const formattedProperties = await Promise.all(analysisPromises);
-        
-        setProperties(formattedProperties);
-        setSearchPerformed(true);
-        toast.success(`Successfully analyzed ${formattedProperties.length} properties with OpenAI`);
-      } catch (error) {
-        console.error("Error with OpenAI analysis:", error);
-        toast.error(`OpenAI analysis failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-        setProperties([]);
-        setSearchPerformed(true);
-      }
+      console.log("Starting Rightmove API search for:", searchTerm);
+      const mappedProperties = await searchRightmoveProperties(searchTerm);
+      const formattedProperties = mappedProperties.map(mapToPropertyListing);
+      handlePropertiesFound(formattedProperties);
     } catch (error) {
       console.error("Error searching properties:", error);
       toast.error("Failed to search properties. Please try again later.");
-      setProperties([]);
-      setSearchPerformed(true);
+      handlePropertiesFound([]);
     } finally {
       setLoading(false);
     }
@@ -428,55 +419,20 @@ const Invest = () => {
   };
 
   const handlePropertyClick = (property: PropertyListing) => {
-    // Ensure we have coordinates for the property
-    if (!property.latitude || !property.longitude) {
-      // Try to geocode the address if we don't have coordinates
-      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(property.address)}`)
-        .then(response => response.json())
-        .then(data => {
-          if (data && data[0]) {
-            setSelectedProperty({
-              ...property,
-              latitude: parseFloat(data[0].lat),
-              longitude: parseFloat(data[0].lon)
-            });
-          } else {
-            setSelectedProperty(property);
-          }
-          setIsProposalDialogOpen(true);
-        })
-        .catch(() => {
-          // If geocoding fails, still show the dialog without coordinates
-          setSelectedProperty(property);
-          setIsProposalDialogOpen(true);
-        });
-    } else {
-      setSelectedProperty(property);
-      setIsProposalDialogOpen(true);
-    }
+    // Simply set the selected property and open dialog
+    setSelectedProperty(property);
+    setIsProposalDialogOpen(true);
   };
 
   useEffect(() => {
     // Choose between PropertyData and Zoopla API
     const fetchInitialProperties = async () => {
       try {
-        // Option 1: Fetch from Zoopla API (active)
+        // Option 1: Fetch from Rightmove API
         const mappedProperties = await fetchAllProperties();
-        
-        try {
-          // Process all properties with OpenAI analysis and wait for them to complete
-          const propertyPromises = mappedProperties.map(property => mapToPropertyListing(property));
-          const formattedProperties = await Promise.all(propertyPromises);
-          
-          setProperties(formattedProperties);
-          setSearchPerformed(true);
-          toast.success(`Successfully analyzed ${formattedProperties.length} properties with OpenAI`);
-        } catch (error) {
-          console.error("Error with OpenAI analysis:", error);
-          toast.error(`OpenAI analysis failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-          setProperties([]);
-          setSearchPerformed(true);
-        }
+        const formattedProperties = mappedProperties.map(mapToPropertyListing);
+        setProperties(formattedProperties);
+        setSearchPerformed(true);
       } catch (error) {
         console.error("Error fetching initial properties:", error);
         toast.error("Failed to load properties. Please try again later.");

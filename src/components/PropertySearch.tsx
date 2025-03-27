@@ -20,9 +20,9 @@ import { toast } from "sonner";
 // } from "@/utils/propertyApi";
 // Import Zoopla API functions
 import { 
-  searchZooplaProperties, 
+  searchRightmoveProperties, 
   MappedProperty 
-} from "@/utils/zoopla-api";
+} from "@/utils/rightmove-api";
 import { 
   MapPin, 
   Search, 
@@ -43,7 +43,7 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
   const [location, setLocation] = useState("");
   const [loading, setLoading] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
-  const [searchMode, setSearchMode] = useState<"zoopla">("zoopla");
+  const [searchMode, setSearchMode] = useState<"rightmove">("rightmove");
   const [radiusMiles, setRadiusMiles] = useState("1");
   const [lastApiCall, setLastApiCall] = useState(0);
   const [filters, setFilters] = useState<FilterState>({
@@ -63,52 +63,27 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
   });
 
   // Rate limiting constants
-  const RATE_LIMIT_MS = 5000; // 5 seconds between API calls
+  const RATE_LIMIT_MS = 2000; // 2 seconds between searches
   const lastSearchRef = useRef<number>(0);
   const searchCountRef = useRef<number>(0);
-  const MAX_SEARCHES_PER_SESSION = 10; // Increased to 10 for Zoopla
+  const MAX_SEARCHES_PER_SESSION = 10; // Increased to 10 for Rightmove
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Get the current search input value
-    const input = searchTerm || location;
-    
-    if (!input.trim()) {
+    // Basic input validation
+    const input = searchTerm.trim();
+    if (!input) {
       toast.error("Please enter a search term");
       return;
     }
     
-    // All searches now go through Zoopla API
+    // All searches now go through Rightmove API
     setSearchTerm(input);
-    handleZooplaSearch(input);
-    
-    /* Original PropertyData approach (commented out)
-    // Check if input looks like a UK postcode
-    const isPostcode = (value: string) => {
-      // Basic UK postcode regex pattern
-      const postcodePattern = /^[A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2}$/i;
-      return postcodePattern.test(value.replace(/\s+/g, ''));
-    };
-    
-    // If input looks like a postcode, use API search mode, otherwise use database search
-    const lookingForPostcode = isPostcode(input);
-    
-    if (lookingForPostcode) {
-      // Set location to input and use API search
-      setLocation(input);
-      setSearchMode("api");
-      handlePropertyDataSearch();
-    } else {
-      // Set searchTerm to input and use database search
-      setSearchTerm(input);
-      setSearchMode("database");
-      handleDatabaseSearch();
-    }
-    */
+    handleRightmoveSearch(input);
   };
 
-  const handleZooplaSearch = async (query: string) => {
+  const handleRightmoveSearch = async (query: string) => {
     // Check session search limit
     if (searchCountRef.current >= MAX_SEARCHES_PER_SESSION) {
       toast.error(`You've reached the maximum number of searches (${MAX_SEARCHES_PER_SESSION}) for this session. Please refresh the page to continue.`);
@@ -129,15 +104,18 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
     onSearchStart?.();
 
     try {
-      // Option 1: Use Zoopla API (active)
-      console.log("Starting Zoopla search for:", query);
+      // Option 1: Use Rightmove API
+      console.log("Starting Rightmove search for:", query);
       
-      // Search using Zoopla API
-      const properties = await searchZooplaProperties(query);
+      // Search using Rightmove API
+      const properties = await searchRightmoveProperties(query);
       
       // Apply filters to the results if needed
       const filteredProperties = properties.filter(property => {
-        if (filters.propertyType && property.propertyType !== filters.propertyType) return false;
+        if (filters.propertyType && property.propertyType && 
+            !property.propertyType.toLowerCase().includes(filters.propertyType.toLowerCase())) {
+          return false;
+        }
         if (filters.minPrice && property.price < Number(filters.minPrice)) return false;
         if (filters.maxPrice && property.price > Number(filters.maxPrice)) return false;
         if (filters.minBedrooms && property.bedrooms && property.bedrooms < Number(filters.minBedrooms)) return false;
@@ -145,39 +123,8 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
         return true;
       });
       
-      console.log(`Found ${filteredProperties.length} properties from Zoopla`);
+      console.log(`Found ${filteredProperties.length} properties from Rightmove search`);
       onPropertiesFound(filteredProperties);
-      
-      /* 
-      // Option 2: Use PropertyData API (commented out to avoid exceeding limits)
-      const apiKey = getPropertyDataApiKey();
-      
-      if (!apiKey) {
-        toast.error("PropertyData API key is not configured in environment variables");
-        return;
-      }
-
-      console.log("Starting PropertyData.co.uk search for:", query);
-      
-      const params: PropertyDataSearchParams = {
-        key: apiKey,
-        location: query,
-        radius_miles: radiusMiles,
-        page_size: "20"
-      };
-      
-      // Add filters to params
-      if (filters.propertyType) params.property_type = filters.propertyType;
-      if (filters.minPrice) params.min_price = filters.minPrice;
-      if (filters.maxPrice) params.max_price = filters.maxPrice;
-      if (filters.minBedrooms) params.min_beds = filters.minBedrooms;
-      if (filters.maxBedrooms) params.max_beds = filters.maxBedrooms;
-
-      const result = await searchPropertyData(params);
-      
-      console.log(`Found ${result.data.length} properties from PropertyData.co.uk`);
-      onPropertiesFound(result.data);
-      */
       
       if (filteredProperties.length === 0) {
         toast.info("No properties found matching your search. Try a different search term.");
@@ -188,7 +135,7 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
       lastSearchRef.current = now;
       searchCountRef.current += 1;
     } catch (error) {
-      console.error("Zoopla search error:", error);
+      console.error("Rightmove search error:", error);
       toast.error(error instanceof Error ? error.message : "Error searching for properties");
       onPropertiesFound([]);
     } finally {
@@ -350,7 +297,7 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
             className="pl-10"
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Enter any location, postcode, or property type to search using the Zoopla API.
+            Enter a location of your choice
           </p>
         </div>
 

@@ -10,7 +10,7 @@ import { getRandomPlaceholder } from "@/utils/propertyUtils";
 import { PropertyTabs } from "@/components/PropertyTabs";
 import { Testimonials } from "@/components/Testimonials";
 import { Footer } from "@/components/Footer";
-import { fetchAllProperties, MappedProperty } from "@/utils/zoopla-api";
+import { fetchAllProperties, MappedProperty } from "@/utils/rightmove-api";
 import { 
   Carousel, 
   CarouselContent, 

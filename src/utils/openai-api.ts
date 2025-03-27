@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { MappedProperty } from "./zoopla-api";
+import { MappedProperty } from "./rightmove-api";
 
 // Initialize OpenAI client
 const openai = new OpenAI({

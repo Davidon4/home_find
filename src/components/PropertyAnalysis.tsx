@@ -12,7 +12,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Loader2 } from "lucide-react";
 import { analyzeProperty as openAIAnalyze } from "@/utils/openai-api";
-import { MappedProperty } from "@/utils/zoopla-api";
+import { MappedProperty } from "@/utils/rightmove-api";
 
 interface PropertyAnalysisProps {
   propertyId: string;
@@ -259,7 +259,7 @@ export const PropertyAnalysis = ({
                       <TrendingUp className="h-8 w-8 text-blue-600 dark:text-blue-400 mr-2" />
                       <div>
                         <span className="text-xs text-gray-500 block">Est. ROI</span>
-                        <span className="font-bold">{analysisData.roi_estimate.toFixed(1)}%</span>
+                        <span className="font-bold">{typeof analysisData.roi_estimate === 'number' ? analysisData.roi_estimate.toFixed(1) : '0.0'}%</span>
                       </div>
                     </div>
                   </div>

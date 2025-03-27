@@ -87,18 +87,25 @@ export const searchDatabaseProperties = async (searchTerm: string): Promise<UKPr
 
     if (error) {
       console.error('Error searching database properties:', error);
-      throw new Error('Failed to search database properties');
+      // Return empty array instead of throwing
+      return [];
+    }
+    
+    if (!data) {
+      console.log(`No data returned from Supabase for "${searchTerm}"`);
+      return [];
     }
 
     console.log(`Found ${data.length} properties in database matching "${searchTerm}"`);
-    return data || [];
+    return data;
   } catch (error) {
     console.error('Error in searchDatabaseProperties:', error);
-    throw error;
+    // Return empty array instead of throwing
+    return [];
   }
 };
 
-export const getPropertyById = async (id: string) => {
+export const getPropertyById = async (id: string): Promise<UKProperty | null> => {
   console.log("Getting property by ID:", id);
   
   try {
@@ -110,13 +117,13 @@ export const getPropertyById = async (id: string) => {
       
     if (error) {
       console.error('Error fetching property by ID:', error);
-      throw new Error('Failed to fetch property details');
+      return null;
     }
     
     return data;
   } catch (error) {
     console.error('Error in getPropertyById:', error);
-    throw error;
+    return null;
   }
 };
 
