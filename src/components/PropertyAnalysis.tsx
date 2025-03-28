@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { LineChart, DollarSign, TrendingUp, AlertTriangle, MapPin, School, Train, Hospital, ShoppingBag, ArrowUp, Ruler, Home, Sparkles } from "lucide-react";
+import { LineChart, DollarSign, TrendingUp, AlertTriangle, MapPin, School, Train, Hospital, ShoppingBag, ArrowUp, Ruler, Home, Sparkles, TrendingDown, Percent } from "lucide-react";
 import {
   Accordion,
   AccordionContent,
@@ -54,6 +54,16 @@ interface SimilarProperty {
   image_url?: string;
 }
 
+// New interface for profit potential analysis
+interface ProfitPotentialAnalysis {
+  averagePrice: number;
+  potentialProfit: number;
+  potentialProfitPercentage: number;
+  similarPropertiesCount: number;
+  confidenceLevel: 'high' | 'medium' | 'low';
+  similarProperties: SimilarProperty[];
+}
+
 interface AnalysisData {
   summary: string;
   recommendation: string;
@@ -71,6 +81,8 @@ interface AnalysisData {
     features: string;
   };
   similar_properties?: SimilarProperty[];
+  // New property for profit potential
+  profit_potential?: ProfitPotentialAnalysis;
 }
 
 export const PropertyAnalysis = ({ 
@@ -124,6 +136,12 @@ export const PropertyAnalysis = ({
       // Use the OpenAI analysis function directly
       const analysisResult = await openAIAnalyze(propertyData);
       
+      // Find similar properties with comparable features
+      const similarProperties = findSimilarProperties(propertyData, allProperties);
+      
+      // Calculate profit potential from truly comparable properties within 1km
+      const profitPotential = calculateProfitPotential(propertyData, allProperties);
+      
       // Transform the analysis result into the expected format
       const data: AnalysisData = {
         summary: analysisResult.summary,
@@ -134,7 +152,8 @@ export const PropertyAnalysis = ({
         bidding_recommendation: analysisResult.bidding_recommendation,
         market_analysis: analysisResult.market_analysis,
         investment_highlights: analysisResult.investment_highlights,
-        similar_properties: findSimilarProperties(propertyData, allProperties)
+        similar_properties: similarProperties,
+        profit_potential: profitPotential
       };
       
       setAnalysisData(data);
@@ -150,7 +169,100 @@ export const PropertyAnalysis = ({
     }
   };
 
-  // Helper function to find similar properties
+  // Calculate profit potential based on similar properties within 1km
+  const calculateProfitPotential = (property: MappedProperty, allProperties: PropertyListing[]): ProfitPotentialAnalysis => {
+    if (!allProperties || allProperties.length === 0) {
+      return {
+        averagePrice: 0,
+        potentialProfit: 0,
+        potentialProfitPercentage: 0,
+        similarPropertiesCount: 0,
+        confidenceLevel: 'low',
+        similarProperties: []
+      };
+    }
+    
+    // Filter properties:
+    // 1. Within 1km radius
+    // 2. Similar bedrooms count (exact match or ±1)
+    // 3. Similar bathrooms count (exact match or ±1)
+    // 4. Same property type (case insensitive)
+    const comparableProperties = allProperties
+      .filter(p => p.id !== property.id)
+      .map(p => {
+        // Calculate distance if coordinates are available
+        let distance = Infinity;
+        
+        if (property.location?.latitude && property.location?.longitude && 
+            p.latitude && p.longitude) {
+          // Simple distance calculation
+          distance = Math.sqrt(
+            Math.pow((property.location.latitude - p.latitude) * 111000, 2) + 
+            Math.pow((property.location.longitude - p.longitude) * 111000 * 
+            Math.cos(property.location.latitude * Math.PI / 180), 2)
+          );
+        }
+        
+        // Calculate price difference
+        const priceDifference = p.price / property.price - 1;
+        
+        return {
+          ...p,
+          distance,
+          price_difference: priceDifference * 100
+        };
+      })
+      // Filter by distance - only properties within 1km
+      .filter(p => p.distance <= 1000)
+      // Filter by similar characteristics
+      .filter(p => {
+        // Check bedrooms - exact match or ±1
+        const matchingBedrooms = 
+          property.bedrooms === p.bedrooms || 
+          (property.bedrooms && p.bedrooms && Math.abs(property.bedrooms - p.bedrooms) <= 1);
+          
+        // Check bathrooms - exact match or ±1
+        const matchingBathrooms = 
+          property.bathrooms === p.bathrooms || 
+          (property.bathrooms && p.bathrooms && Math.abs(property.bathrooms - p.bathrooms) <= 1);
+          
+        // Check property type (case insensitive comparison)
+        const matchingType = 
+          !property_type || !p.property_type ||
+          property_type.toLowerCase() === p.property_type.toLowerCase();
+          
+        return matchingBedrooms && matchingBathrooms && matchingType;
+      })
+      // Sort by distance (closest first)
+      .sort((a, b) => a.distance - b.distance);
+
+    // Calculate average price of comparable properties
+    const totalPrice = comparableProperties.reduce((sum, p) => sum + p.price, 0);
+    const averagePrice = comparableProperties.length > 0 ? totalPrice / comparableProperties.length : 0;
+    
+    // Calculate potential profit
+    const potentialProfit = averagePrice - property.price;
+    const potentialProfitPercentage = property.price > 0 ? (potentialProfit / property.price) * 100 : 0;
+    
+    // Determine confidence level based on number of comparable properties
+    let confidenceLevel: 'high' | 'medium' | 'low' = 'low';
+    if (comparableProperties.length >= 5) {
+      confidenceLevel = 'high';
+    } else if (comparableProperties.length >= 2) {
+      confidenceLevel = 'medium';
+    }
+    
+    return {
+      averagePrice,
+      potentialProfit,
+      potentialProfitPercentage,
+      similarPropertiesCount: comparableProperties.length,
+      confidenceLevel,
+      similarProperties: comparableProperties.slice(0, 5)  // Take up to 5 most similar properties
+    };
+  };
+
+  // Helper function to find similar properties (used for display in the UI)
   const findSimilarProperties = (property: MappedProperty, allProperties: PropertyListing[]): SimilarProperty[] => {
     if (!allProperties || allProperties.length === 0) return [];
     
@@ -264,6 +376,49 @@ export const PropertyAnalysis = ({
                     </div>
                   </div>
                   
+                  {/* Add Profit Potential Section */}
+                  {analysisData.profit_potential && analysisData.profit_potential.similarPropertiesCount > 0 && (
+                    <div className="p-4 bg-emerald-50 dark:bg-emerald-900 rounded-lg mb-4">
+                      <h3 className="text-base font-semibold mb-2 flex items-center text-emerald-800 dark:text-emerald-200">
+                        <Percent className="h-5 w-5 mr-2" />
+                        Profit Potential Analysis
+                      </h3>
+                      
+                      <div className="grid grid-cols-2 gap-4 mb-3">
+                        <div>
+                          <span className="text-xs text-gray-500 block">Potential Profit</span>
+                          <span className="font-bold text-emerald-700 dark:text-emerald-300 text-lg">
+                            {formatCurrency(analysisData.profit_potential.potentialProfit)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-gray-500 block">Upside Percentage</span>
+                          <span className="font-bold text-emerald-700 dark:text-emerald-300 text-lg">
+                            {typeof analysisData.profit_potential.potentialProfitPercentage === 'number' 
+                              ? analysisData.profit_potential.potentialProfitPercentage.toFixed(1) 
+                              : '0.0'}%
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex justify-between items-center text-sm">
+                        <span>
+                          Based on {analysisData.profit_potential.similarPropertiesCount} similar properties within 1km
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-xs ${
+                          analysisData.profit_potential.confidenceLevel === 'high' 
+                            ? 'bg-green-100 text-green-800' 
+                            : analysisData.profit_potential.confidenceLevel === 'medium'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {analysisData.profit_potential.confidenceLevel.charAt(0).toUpperCase() + 
+                           analysisData.profit_potential.confidenceLevel.slice(1)} confidence
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
                   <div className="mb-4">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-sm font-medium">Investment Score</span>
@@ -291,7 +446,9 @@ export const PropertyAnalysis = ({
                           ? "bg-green-100 text-green-800" 
                           : "bg-amber-100 text-amber-800"
                       }`}>
-                        {((analysisData.bidding_recommendation - price) / price * 100).toFixed(1)}% 
+                        {typeof analysisData.bidding_recommendation === 'number' && typeof price === 'number' 
+                          ? ((analysisData.bidding_recommendation - price) / price * 100).toFixed(1) 
+                          : '0.0'}% 
                         {analysisData.bidding_recommendation > price ? " above" : " below"} asking
                       </span>
                     </div>
@@ -299,6 +456,67 @@ export const PropertyAnalysis = ({
                 </div>
               </AccordionContent>
             </AccordionItem>
+            
+            {/* Add new section for comparable properties */}
+            {analysisData.profit_potential && analysisData.profit_potential.similarPropertiesCount > 0 && (
+              <AccordionItem value="comparable">
+                <AccordionTrigger className="text-lg font-semibold">
+                  <TrendingDown className="h-5 w-5 mr-2" />
+                  Comparable Properties
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-4">
+                    <div className="p-3 border rounded-lg mb-3">
+                      <h4 className="text-sm font-medium mb-2">Market Analysis</h4>
+                      <p className="text-sm text-gray-600">
+                        Based on {analysisData.profit_potential.similarPropertiesCount} comparable properties 
+                        within 1km with similar characteristics (bedrooms, bathrooms, property type), 
+                        the average price is {formatCurrency(analysisData.profit_potential.averagePrice)}.
+                        This suggests a potential profit of {formatCurrency(analysisData.profit_potential.potentialProfit)} 
+                        ({typeof analysisData.profit_potential.potentialProfitPercentage === 'number' 
+                          ? analysisData.profit_potential.potentialProfitPercentage.toFixed(1) 
+                          : '0.0'}% upside).
+                      </p>
+                    </div>
+                    
+                    <h4 className="text-sm font-medium mb-2">Comparable Properties</h4>
+                    {analysisData.profit_potential.similarProperties.map((property, index) => (
+                      <div key={property.id || index} className="flex gap-3 p-3 border rounded-lg">
+                        {property.image_url ? (
+                          <img 
+                            src={property.image_url} 
+                            alt={property.address} 
+                            className="w-16 h-16 object-cover rounded"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center">
+                            <Home className="h-6 w-6 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <h4 className="text-sm font-medium truncate">{property.address}</h4>
+                          <div className="flex justify-between mt-1">
+                            <span className="text-sm">{formatCurrency(property.price)}</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                              property.price_difference > 0 
+                                ? "bg-red-100 text-red-800" 
+                                : "bg-green-100 text-green-800"
+                            }`}>
+                              {property.price_difference > 0 ? '+' : ''}
+                              {typeof property.price_difference === 'number' ? property.price_difference.toFixed(1) : '0.0'}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between mt-1 text-xs text-gray-500">
+                            <span>{property.bedrooms || '?'} bed, {property.bathrooms || '?'} bath</span>
+                            <span>{typeof property.distance === 'number' ? (property.distance / 1000).toFixed(1) : '?'}km away</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            )}
             
             <AccordionItem value="location">
               <AccordionTrigger className="text-lg font-semibold">
@@ -379,12 +597,12 @@ export const PropertyAnalysis = ({
                                 : "bg-green-100 text-green-800"
                             }`}>
                               {property.price_difference > 0 ? '+' : ''}
-                              {property.price_difference.toFixed(1)}%
+                              {typeof property.price_difference === 'number' ? property.price_difference.toFixed(1) : '0.0'}%
                             </span>
                           </div>
                           <div className="flex justify-between mt-1 text-xs text-gray-500">
                             <span>{property.bedrooms || '?'} bed, {property.bathrooms || '?'} bath</span>
-                            <span>{(property.distance / 1000).toFixed(1)}km away</span>
+                            <span>{typeof property.distance === 'number' ? (property.distance / 1000).toFixed(1) : '?'}km away</span>
                           </div>
                         </div>
                       </div>
