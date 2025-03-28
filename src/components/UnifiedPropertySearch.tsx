@@ -213,7 +213,6 @@ export const UnifiedPropertySearch = ({
     
     if (property.bedrooms && property.bedrooms >= 3) score += 5;
     if (property.bathrooms && property.bathrooms >= 2) score += 5;
-    if (property.square_feet && property.square_feet > 1000) score += 5;
     if (Array.isArray(property.features) && property.features.length > 5) score += 5;
     if (property.price < 200000) score += 10;
     
@@ -266,7 +265,7 @@ export const UnifiedPropertySearch = ({
           </div>
 
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">Search Filters</h3>
+            <h3 className="text-sm font-medium">Filters (2-3 beds, £70k-£275k)</h3>
             <Button
               type="button"
               variant="ghost"
@@ -275,7 +274,7 @@ export const UnifiedPropertySearch = ({
               className="flex items-center gap-1 text-sm"
             >
               <Filter className="h-4 w-4" />
-              Filters
+              {filtersVisible ? "Hide Filters" : "Show Filters"}
               <ChevronDown
                 className={`h-4 w-4 transition-transform ${
                   filtersVisible ? "transform rotate-180" : ""
@@ -313,7 +312,7 @@ export const UnifiedPropertySearch = ({
                     <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
                       type="number"
-                      placeholder="Min"
+                      placeholder="70000"
                       value={params.minPrice}
                       onChange={(e) => handleChange('minPrice', e.target.value)}
                       className="pl-9"
@@ -323,7 +322,7 @@ export const UnifiedPropertySearch = ({
                     <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
                       type="number"
-                      placeholder="Max"
+                      placeholder="275000"
                       value={params.maxPrice}
                       onChange={(e) => handleChange('maxPrice', e.target.value)}
                       className="pl-9"
@@ -339,7 +338,7 @@ export const UnifiedPropertySearch = ({
                     <Bed className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
                       type="number"
-                      placeholder="Min"
+                      placeholder="2"
                       value={params.minBeds}
                       onChange={(e) => handleChange('minBeds', e.target.value)}
                       className="pl-9"
@@ -349,7 +348,7 @@ export const UnifiedPropertySearch = ({
                     <Bed className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
                       type="number"
-                      placeholder="Max"
+                      placeholder="3"
                       value={params.maxBeds}
                       onChange={(e) => handleChange('maxBeds', e.target.value)}
                       className="pl-9"
