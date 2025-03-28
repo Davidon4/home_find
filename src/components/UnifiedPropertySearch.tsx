@@ -40,7 +40,7 @@ export const UnifiedPropertySearch = ({
 }: UnifiedPropertySearchProps) => {
   const [params, setParams] = useState<UnifiedSearchParams>({
     searchTerm: "",
-    location: "Edinburgh",
+    location: "",
     propertyType: "",
     minPrice: "70000",
     maxPrice: "275000",
@@ -65,9 +65,13 @@ export const UnifiedPropertySearch = ({
     e.preventDefault();
     
     let searchTerm = params.searchTerm.trim();
+    if (!searchTerm && params.location) {
+      searchTerm = params.location.trim();
+    }
     
-    if (!searchTerm.toLowerCase().includes('edinburgh')) {
-      searchTerm = searchTerm ? `${searchTerm}, Edinburgh` : "Edinburgh";
+    if (!searchTerm) {
+      toast.error("Please enter a search term or location");
+      return;
     }
     
     // Always enforce our default constraints if empty
@@ -80,7 +84,7 @@ export const UnifiedPropertySearch = ({
     onSearchStart?.();
 
     try {
-      console.log("Starting Rightmove API search for:", searchTerm);
+      console.log("Starting property search for:", searchTerm);
       console.log("Applying filters:", {
         price: `£${minPrice}-£${maxPrice}`,
         bedrooms: `${minBeds}-${maxBeds}`,
@@ -90,11 +94,6 @@ export const UnifiedPropertySearch = ({
       const mappedProperties = await searchRightmoveProperties(searchTerm);
       
       const filteredProperties = mappedProperties.filter(property => {
-        // Edinburgh location check
-        if (!property.address.toLowerCase().includes('edinburgh')) {
-          return false;
-        }
-        
         // Property type check
         if (params.propertyType && property.propertyType) {
           const propertyTypeFilter = params.propertyType.toLowerCase();
@@ -117,7 +116,7 @@ export const UnifiedPropertySearch = ({
         return true;
       });
       
-      console.log(`Found ${filteredProperties.length} properties in Edinburgh matching all criteria`);
+      console.log(`Found ${filteredProperties.length} properties matching all criteria`);
       
       const propertyListings = filteredProperties.map(property => {
         const rentalEstimate = property.rental_estimate || 
@@ -174,9 +173,9 @@ export const UnifiedPropertySearch = ({
       });
       
       onPropertiesFound(propertyListings);
-      toast.success(`Found ${propertyListings.length} properties in Edinburgh`);
+      toast.success(`Found ${propertyListings.length} properties matching your criteria`);
     } catch (error) {
-      console.error("Rightmove API search error:", error);
+      console.error("Property search error:", error);
       toast.error(error instanceof Error ? error.message : "Error searching for properties");
       onPropertiesFound([]);
     } finally {
@@ -235,7 +234,7 @@ export const UnifiedPropertySearch = ({
       <div className="flex items-center gap-2 p-2 mb-4 bg-blue-50 text-blue-700 rounded-md">
         <Info className="h-5 w-5" />
         <p className="text-sm">
-          Currently only showing Edinburgh properties with 2-3 bedrooms between £70,000-£275,000.
+          Showing investment properties with 2-3 bedrooms between £70,000-£275,000.
         </p>
       </div>
       
@@ -244,7 +243,7 @@ export const UnifiedPropertySearch = ({
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             type="text"
-            placeholder="Search Edinburgh properties (address, EH postcode, etc.)"
+            placeholder="Search properties (address, postcode, area, etc.)"
             value={params.searchTerm}
             onChange={(e) => handleChange('searchTerm', e.target.value)}
             className="pl-10"
@@ -256,11 +255,10 @@ export const UnifiedPropertySearch = ({
             <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               type="text"
-              placeholder="Location (defaults to Edinburgh)"
+              placeholder="Enter location (city, town, area)"
               value={params.location}
               onChange={(e) => handleChange('location', e.target.value)}
               className="pl-10"
-              disabled
             />
           </div>
 
@@ -375,12 +373,12 @@ export const UnifiedPropertySearch = ({
           {loading ? (
             <span className="flex items-center">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-              Searching Edinburgh...
+              Searching properties...
             </span>
           ) : (
             <span className="flex items-center">
               <Search className="mr-2 h-4 w-4" />
-              Search Edinburgh Properties
+              Search Properties
             </span>
           )}
         </Button>
