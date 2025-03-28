@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
  * Rightmove API integration
  */
 
-// Rightmove property interface based on the actual JSON data structure
+// Rightmove property interface based on the actual JSON data structure from Edinburgh properties
 export interface RightmoveProperty {
   id: string;
   address: string;
@@ -25,6 +25,13 @@ export interface RightmoveProperty {
   rightmove_url?: string;
   image_url?: string | null;
   last_verified?: string;
+  // Edinburgh-specific location field
+  location?: {
+    address?: string;
+    search_location?: string;
+    latitude?: number;
+    longitude?: number;
+  };
   // Allow for additional properties from database that may not match our expected schema
   [key: string]: unknown;
 }
@@ -199,6 +206,16 @@ function mapRightmoveProperty(property: RightmoveProperty): MappedProperty | nul
     // Extract features from description if any
     const features = extractFeaturesFromDescription(property.description);
     
+    // Extract location information - handle both direct properties and nested location object
+    let latitude: number | undefined;
+    let longitude: number | undefined;
+    
+    // Check for location object first (Edinburgh format)
+    if (property.location) {
+      latitude = property.location.latitude;
+      longitude = property.location.longitude;
+    }
+    
     // Create a mapped property object
     const mappedProperty: MappedProperty = {
       id: property.id,
@@ -213,13 +230,17 @@ function mapRightmoveProperty(property: RightmoveProperty): MappedProperty | nul
       url: property.rightmove_url,
       features: features,
       dateAdded: property.created_at,
-      listedSince: property.updated_at,
+      listedSince: property.updated_at || property.created_at, // Use created_at as fallback
       agent: {
         name: 'Rightmove Agent',
         phone: ''
       },
       rental_estimate: rentalEstimate,
       roi_estimate: roiEstimate,
+      location: latitude || longitude ? {
+        latitude: latitude || 0,
+        longitude: longitude || 0
+      } : undefined,
       propertyDetails: {
         market_demand: "Medium",
         area_growth: "3.5%",

@@ -21,7 +21,8 @@ import {
   Bed, 
   Bath, 
   SquareCode, 
-  DollarSign
+  DollarSign,
+  Info
 } from "lucide-react";
 import { UnifiedSearchParams } from "./PropertyCrawler/types";
 import { PropertyListing } from "@/types/property";
@@ -39,12 +40,12 @@ export const UnifiedPropertySearch = ({
 }: UnifiedPropertySearchProps) => {
   const [params, setParams] = useState<UnifiedSearchParams>({
     searchTerm: "",
-    location: "",
+    location: "Edinburgh",
     propertyType: "",
-    minPrice: "",
-    maxPrice: "",
-    minBeds: "",
-    maxBeds: "",
+    minPrice: "70000",
+    maxPrice: "275000",
+    minBeds: "2",
+    maxBeds: "3",
     maxPages: 3,
     analysisThreshold: 65,
     searchMode: "rightmove"
@@ -63,25 +64,32 @@ export const UnifiedPropertySearch = ({
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!params.location.trim() && !params.searchTerm.trim()) {
-      toast.error("Please enter a location or search term");
-      return;
+    let searchTerm = params.searchTerm.trim();
+    
+    if (!searchTerm.toLowerCase().includes('edinburgh')) {
+      searchTerm = searchTerm ? `${searchTerm}, Edinburgh` : "Edinburgh";
     }
-
+    
     setLoading(true);
     onSearchStart?.();
 
     try {
-      const searchTerm = params.location.trim() || params.searchTerm.trim();
       console.log("Starting Rightmove API search for:", searchTerm);
       
       const mappedProperties = await searchRightmoveProperties(searchTerm);
       
       const filteredProperties = mappedProperties.filter(property => {
-        // For property type, check if the type contains our search term (case insensitive)
-        if (params.propertyType && property.propertyType && 
-            !property.propertyType.toLowerCase().includes(params.propertyType.toLowerCase())) {
+        if (!property.address.toLowerCase().includes('edinburgh')) {
           return false;
+        }
+        
+        if (params.propertyType && property.propertyType) {
+          const propertyTypeFilter = params.propertyType.toLowerCase();
+          const actualPropertyType = property.propertyType.toLowerCase();
+          
+          if (propertyTypeFilter && !actualPropertyType.includes(propertyTypeFilter)) {
+            return false;
+          }
         }
         
         if (params.minPrice && property.price < Number(params.minPrice)) return false;
@@ -91,15 +99,12 @@ export const UnifiedPropertySearch = ({
         return true;
       });
       
-      console.log(`Found ${filteredProperties.length} properties from Rightmove search`);
+      console.log(`Found ${filteredProperties.length} properties in Edinburgh from Rightmove search`);
       
-      // Map properties to PropertyListing format without OpenAI analysis
       const propertyListings = filteredProperties.map(property => {
-        // Calculate rental estimate based on property details
         const rentalEstimate = property.rental_estimate || 
           calculateRentalEstimate(property.price, property.bedrooms, property.propertyType);
         
-        // Calculate ROI based on price and rental estimate
         const roiEstimate = property.roi_estimate || 
           calculateROI(property.price, rentalEstimate);
         
@@ -151,7 +156,7 @@ export const UnifiedPropertySearch = ({
       });
       
       onPropertiesFound(propertyListings);
-      toast.success(`Found ${propertyListings.length} properties via Rightmove search`);
+      toast.success(`Found ${propertyListings.length} properties in Edinburgh`);
     } catch (error) {
       console.error("Rightmove API search error:", error);
       toast.error(error instanceof Error ? error.message : "Error searching for properties");
@@ -162,22 +167,18 @@ export const UnifiedPropertySearch = ({
     }
   };
 
-  // Helper functions for property calculations
   const calculateRentalEstimate = (price: number, bedrooms: number | null, propertyType: string): number => {
     if (!price) return 0;
-    if (!bedrooms) bedrooms = 2; // Default to 2 bedrooms if not specified
+    if (!bedrooms) bedrooms = 2;
     
-    // Base rental is roughly 0.8% of property value annually, divided by 12 for monthly
     let baseRental = (price * 0.008) / 12;
     
-    // Adjust for bedrooms
-    baseRental *= (1 + (bedrooms - 2) * 0.1); // +/- 10% per bedroom difference from 2
+    baseRental *= (1 + (bedrooms - 2) * 0.1);
     
-    // Adjust for property type
     if (propertyType.toLowerCase().includes('flat') || propertyType.toLowerCase().includes('apartment')) {
-      baseRental *= 1.1; // Flats typically have higher rental yields
+      baseRental *= 1.1;
     } else if (propertyType.toLowerCase().includes('detached')) {
-      baseRental *= 0.9; // Detached houses typically have lower rental yields
+      baseRental *= 0.9;
     }
     
     return Math.round(baseRental);
@@ -186,7 +187,7 @@ export const UnifiedPropertySearch = ({
   const calculateROI = (price: number, monthlyRental: number): number => {
     if (!price || !monthlyRental) return 0;
     const annualRental = monthlyRental * 12;
-    return (annualRental / price) * 100; // Return as percentage
+    return (annualRental / price) * 100;
   };
 
   const calculateInvestmentScore = (property: MappedProperty): number => {
@@ -205,21 +206,26 @@ export const UnifiedPropertySearch = ({
     setParams(prev => ({
       ...prev,
       propertyType: "",
-      minPrice: "",
-      maxPrice: "",
-      minBeds: "",
-      maxBeds: ""
+      minPrice: "70000",
+      maxPrice: "275000",
+      minBeds: "2",
+      maxBeds: "3"
     }));
   };
 
   return (
     <div className="w-full bg-white rounded-lg shadow-md p-4">
+      <div className="flex items-center gap-2 p-2 mb-4 bg-blue-50 text-blue-700 rounded-md">
+        <Info className="h-5 w-5" />
+        <p className="text-sm">Currently only properties in Edinburgh are available in our database.</p>
+      </div>
+      
       <form onSubmit={handleSearch} className="space-y-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             type="text"
-            placeholder="Search properties (address, price, bedrooms, etc.)"
+            placeholder="Search Edinburgh properties (address, EH postcode, etc.)"
             value={params.searchTerm}
             onChange={(e) => handleChange('searchTerm', e.target.value)}
             className="pl-10"
@@ -231,10 +237,11 @@ export const UnifiedPropertySearch = ({
             <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               type="text"
-              placeholder="Enter location (e.g. London, Manchester)"
+              placeholder="Location (defaults to Edinburgh)"
               value={params.location}
               onChange={(e) => handleChange('location', e.target.value)}
               className="pl-10"
+              disabled
             />
           </div>
 
@@ -270,9 +277,9 @@ export const UnifiedPropertySearch = ({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">Any type</SelectItem>
-                    <SelectItem value="detached h">Detached</SelectItem>
-                    <SelectItem value="semi-detached h">Semi-detached</SelectItem>
-                    <SelectItem value="terraced h">Terraced</SelectItem>
+                    <SelectItem value="detached">Detached</SelectItem>
+                    <SelectItem value="semi-detached">Semi-detached</SelectItem>
+                    <SelectItem value="terraced">Terraced</SelectItem>
                     <SelectItem value="flat">Flat</SelectItem>
                     <SelectItem value="bungalow">Bungalow</SelectItem>
                   </SelectContent>
@@ -349,12 +356,12 @@ export const UnifiedPropertySearch = ({
           {loading ? (
             <span className="flex items-center">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-              Searching...
+              Searching Edinburgh...
             </span>
           ) : (
             <span className="flex items-center">
               <Search className="mr-2 h-4 w-4" />
-              Search Properties
+              Search Edinburgh Properties
             </span>
           )}
         </Button>
