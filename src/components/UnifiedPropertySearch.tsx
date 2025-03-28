@@ -52,7 +52,7 @@ export const UnifiedPropertySearch = ({
   });
   
   const [loading, setLoading] = useState(false);
-  const [filtersVisible, setFiltersVisible] = useState(false);
+  const [filtersVisible, setFiltersVisible] = useState(true);
   
   const handleChange = (name: keyof UnifiedSearchParams, value: string | number) => {
     setParams(prev => ({
@@ -70,19 +70,32 @@ export const UnifiedPropertySearch = ({
       searchTerm = searchTerm ? `${searchTerm}, Edinburgh` : "Edinburgh";
     }
     
+    // Always enforce our default constraints if empty
+    const minPrice = params.minPrice || "70000";
+    const maxPrice = params.maxPrice || "275000";
+    const minBeds = params.minBeds || "2";
+    const maxBeds = params.maxBeds || "3";
+    
     setLoading(true);
     onSearchStart?.();
 
     try {
       console.log("Starting Rightmove API search for:", searchTerm);
+      console.log("Applying filters:", {
+        price: `£${minPrice}-£${maxPrice}`,
+        bedrooms: `${minBeds}-${maxBeds}`,
+        propertyType: params.propertyType || "any"
+      });
       
       const mappedProperties = await searchRightmoveProperties(searchTerm);
       
       const filteredProperties = mappedProperties.filter(property => {
+        // Edinburgh location check
         if (!property.address.toLowerCase().includes('edinburgh')) {
           return false;
         }
         
+        // Property type check
         if (params.propertyType && property.propertyType) {
           const propertyTypeFilter = params.propertyType.toLowerCase();
           const actualPropertyType = property.propertyType.toLowerCase();
@@ -92,14 +105,19 @@ export const UnifiedPropertySearch = ({
           }
         }
         
-        if (params.minPrice && property.price < Number(params.minPrice)) return false;
-        if (params.maxPrice && property.price > Number(params.maxPrice)) return false;
-        if (params.minBeds && property.bedrooms && property.bedrooms < Number(params.minBeds)) return false;
-        if (params.maxBeds && property.bedrooms && property.bedrooms > Number(params.maxBeds)) return false;
+        // Price range check - strictly enforce our price range
+        if (property.price < Number(minPrice)) return false;
+        if (property.price > Number(maxPrice)) return false;
+        
+        // Bedroom count check - strictly require bedrooms to be in range
+        if (!property.bedrooms) return false; // Must have bedroom data
+        if (property.bedrooms < Number(minBeds)) return false;
+        if (property.bedrooms > Number(maxBeds)) return false;
+        
         return true;
       });
       
-      console.log(`Found ${filteredProperties.length} properties in Edinburgh from Rightmove search`);
+      console.log(`Found ${filteredProperties.length} properties in Edinburgh matching all criteria`);
       
       const propertyListings = filteredProperties.map(property => {
         const rentalEstimate = property.rental_estimate || 
@@ -217,7 +235,9 @@ export const UnifiedPropertySearch = ({
     <div className="w-full bg-white rounded-lg shadow-md p-4">
       <div className="flex items-center gap-2 p-2 mb-4 bg-blue-50 text-blue-700 rounded-md">
         <Info className="h-5 w-5" />
-        <p className="text-sm">Currently only properties in Edinburgh are available in our database.</p>
+        <p className="text-sm">
+          Currently only showing Edinburgh properties with 2-3 bedrooms between £70,000-£275,000.
+        </p>
       </div>
       
       <form onSubmit={handleSearch} className="space-y-4">
