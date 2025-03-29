@@ -4,11 +4,94 @@ import { MappedProperty, ZooplaProperty } from "@/types/property-types";
 const PILOTERR_API_KEY = import.meta.env.VITE_PILOTERR_API_KEY || "";
 const API_BASE_URL = "https://piloterr.com/api/v2/zoopla/property";
 
+// CORS proxy options (choose one):
+// 1. Use a public CORS proxy (for development only)
+const CORS_PROXY = "https://cors-anywhere.herokuapp.com/"; // Request access at: https://cors-anywhere.herokuapp.com/corsdemo
+// 2. Or use your own deployed proxy if available
+// const CORS_PROXY = "https://your-cors-proxy.com/";
+
+// Use the proxy for development or testing, not for production
+const shouldUseProxy = import.meta.env.DEV && import.meta.env.VITE_USE_CORS_PROXY === "true";
+const getApiUrl = (endpoint: string) => shouldUseProxy ? `${CORS_PROXY}${endpoint}` : endpoint;
+
 // Cache to store API responses and prevent duplicate calls
 const searchCache: Record<string, ZooplaProperty[]> = {};
 
 // Track remaining API credits
 let remainingCredits = 50;
+
+// Use mock data for development and testing
+const USE_MOCK_DATA = import.meta.env.DEV && (import.meta.env.VITE_USE_MOCK_DATA === "true" || !PILOTERR_API_KEY);
+
+// Sample mock data for development/testing
+const MOCK_PROPERTIES: ZooplaProperty[] = [
+  {
+    propertyId: "12345678",
+    title: "2 bed flat for sale",
+    price: "£175,000",
+    address: "123 Sample Street, London, SW1 1AA",
+    description: "A beautiful 2 bedroom flat in central London with modern amenities and close to transport links.",
+    agent: {
+      name: "Sample Estate Agents",
+      phone: "020 1234 5678",
+      email: "info@sampleagents.com"
+    },
+    images: ["https://placehold.co/600x400?text=Property+Image"],
+    details: {
+      bedrooms: 2,
+      bathrooms: 1,
+      receptions: 1,
+      squareFeet: 750,
+      type: "Flat",
+      tenure: "Leasehold",
+      garden: "None",
+      parking: "On-street"
+    },
+    nearbySchools: ["Sample Primary School", "Sample Secondary School"],
+    additionalInfo: {
+      built: "2000",
+      energyRating: "C",
+      councilTaxBand: "C"
+    },
+    mapCoordinates: {
+      latitude: 51.5074,
+      longitude: -0.1278
+    }
+  },
+  {
+    propertyId: "87654321",
+    title: "3 bed semi-detached for sale",
+    price: "£250,000",
+    address: "456 Example Road, Manchester, M1 1BB",
+    description: "Spacious 3 bedroom semi-detached house with garden and driveway parking.",
+    agent: {
+      name: "Example Property Services",
+      phone: "0161 876 5432",
+      email: "info@exampleproperties.com"
+    },
+    images: ["https://placehold.co/600x400?text=House+Image"],
+    details: {
+      bedrooms: 3,
+      bathrooms: 2,
+      receptions: 2,
+      squareFeet: 1100,
+      type: "Semi-detached",
+      tenure: "Freehold",
+      garden: "Rear garden",
+      parking: "Driveway"
+    },
+    nearbySchools: ["Example Primary School", "Example High School"],
+    additionalInfo: {
+      built: "1970",
+      energyRating: "D",
+      councilTaxBand: "D"
+    },
+    mapCoordinates: {
+      latitude: 53.4808,
+      longitude: -2.2426
+    }
+  }
+];
 
 /**
  * Search for properties using the Piloterr Zoopla API
@@ -23,7 +106,20 @@ export async function searchZooplaProperties(query: string): Promise<MappedPrope
       if (cachedResults.length > 0) {
         return mapZooplaProperties(cachedResults);
       }
+      if (USE_MOCK_DATA) {
+        console.warn("Using mock data because API credits are exhausted");
+        return mapZooplaProperties(MOCK_PROPERTIES);
+      }
       throw new Error("API credit limit reached and no cached results available");
+    }
+
+    // Check for API key and use mock data if needed
+    if (!PILOTERR_API_KEY) {
+      console.warn("PILOTERR_API_KEY is missing. Using mock data instead.");
+      if (USE_MOCK_DATA) {
+        return mapZooplaProperties(MOCK_PROPERTIES);
+      }
+      throw new Error("API key is missing. Please configure your API key in the .env file.");
     }
 
     // Check if we already have cached results for this query
@@ -32,9 +128,29 @@ export async function searchZooplaProperties(query: string): Promise<MappedPrope
       return mapZooplaProperties(searchCache[query]);
     }
     
+    // If we're explicitly using mock data, return it
+    if (USE_MOCK_DATA) {
+      console.log("Using mock data instead of API call");
+      const mockResults = [...MOCK_PROPERTIES];
+      
+      // Add the location to the mock properties to simulate a real search
+      mockResults.forEach(prop => {
+        prop.address = prop.address.replace(/London|Manchester/, query.charAt(0).toUpperCase() + query.slice(1));
+      });
+      
+      // Cache the results
+      searchCache[query] = mockResults;
+      return mapZooplaProperties(mockResults);
+    }
+    
     // Make API request
     console.log(`Searching Zoopla properties via Piloterr API for: "${query}"`);
-    const response = await fetch(`${API_BASE_URL}?query=${encodeURIComponent(query)}`, {
+    console.log(`Using ${shouldUseProxy ? 'proxy' : 'direct'} API call`);
+    
+    const apiUrl = getApiUrl(`${API_BASE_URL}?query=${encodeURIComponent(query)}`);
+    console.log(`API URL: ${apiUrl}`);
+    
+    const response = await fetch(apiUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -44,6 +160,16 @@ export async function searchZooplaProperties(query: string): Promise<MappedPrope
     
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(`API request failed: ${response.status} ${response.statusText}`, errorText);
+      
+      if (response.status === 401) {
+        throw new Error("API authentication failed. Please check your API key.");
+      } else if (response.status === 403) {
+        throw new Error("API access forbidden. Your API key may have insufficient permissions.");
+      } else if (response.status === 429) {
+        throw new Error("API rate limit exceeded. Please try again later.");
+      }
+      
       throw new Error(`API request failed: ${response.status} ${errorText}`);
     }
     
@@ -63,6 +189,20 @@ export async function searchZooplaProperties(query: string): Promise<MappedPrope
     return mapZooplaProperties(properties);
   } catch (error) {
     console.error('Error searching Zoopla properties:', error);
+    
+    // Fall back to mock data in development
+    if (USE_MOCK_DATA) {
+      console.warn("API call failed, using mock data as fallback");
+      return mapZooplaProperties(MOCK_PROPERTIES);
+    }
+    
+    // If we have cached results for any query, return those
+    const cachedResults = Object.values(searchCache).flat();
+    if (cachedResults.length > 0) {
+      console.warn("API call failed, using cached results as fallback");
+      return mapZooplaProperties(cachedResults);
+    }
+    
     return [];
   }
 }
