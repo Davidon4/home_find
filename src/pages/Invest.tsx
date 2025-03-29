@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { PropertySearch } from "@/components/PropertySearch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MappedProperty, fetchAllProperties, searchRightmoveProperties } from "@/utils/rightmove-api";
+import { MappedProperty } from "@/types/property-types";
+import { searchZooplaProperties } from "@/utils/piloterr-api";
 import { UKProperty, searchDatabaseProperties } from "@/utils/propertyApi";
 import { Session } from "@supabase/supabase-js";
 import { PropertyProposalDialog } from "@/components/PropertyProposalDialog";
@@ -271,7 +272,7 @@ const Invest = () => {
   const fetchProperties = async () => {
     setLoading(true);
     try {
-      const mappedProperties = await fetchAllProperties();
+      const mappedProperties = await searchZooplaProperties("investment properties");
       const analysisPromises = mappedProperties.map(mapToPropertyListing);
       const formattedProperties = await Promise.all(analysisPromises);
       setProperties(formattedProperties);
@@ -284,18 +285,34 @@ const Invest = () => {
   };
 
   const searchProperties = async (searchTerm: string) => {
+    if (!searchTerm.trim()) {
+      toast.error("Please enter a search term");
+      return;
+    }
+
     setLoading(true);
+    setSearchParams({ searchTerm });
+    console.log("Searching Zoopla properties for:", searchTerm);
+
     try {
-      console.log("Starting Rightmove API search for:", searchTerm);
-      const mappedProperties = await searchRightmoveProperties(searchTerm);
-      const formattedProperties = mappedProperties.map(mapToPropertyListing);
-      handlePropertiesFound(formattedProperties);
+      const foundProperties = await searchZooplaProperties(searchTerm);
+      
+      if (foundProperties.length === 0) {
+        toast.info("No properties found. Try a different search term.");
+        setProperties([]);
+      } else {
+        const mappedProperties = foundProperties.map(mapToPropertyListing);
+        handlePropertiesFound(mappedProperties);
+        toast.success(`Found ${mappedProperties.length} properties`);
+      }
     } catch (error) {
       console.error("Error searching properties:", error);
-      toast.error("Failed to search properties. Please try again later.");
-      handlePropertiesFound([]);
+      toast.error("Error searching properties. Please try again.");
+      setProperties([]);
     } finally {
       setLoading(false);
+      setSearchPerformed(true);
+      setActiveTab("results");
     }
   };
 
@@ -330,71 +347,10 @@ const Invest = () => {
       const propertyPromises = foundProperties.map(async prop => {
         if ('propertyType' in prop) {
           // It's a MappedProperty
-          return await mapToPropertyListing(prop as MappedProperty);
+          return mapToPropertyListing(prop as MappedProperty);
         } else {
           // It's a UKProperty, map it to PropertyListing
-          const ukProperty = prop as UKProperty;
-          console.log(`UKProperty ${ukProperty.id} details:`, {
-            address: ukProperty.address,
-            price: ukProperty.price,
-            bedrooms: ukProperty.bedrooms,
-            property_type: ukProperty.property_type,
-            property_details: ukProperty.property_details ? 'Present' : 'Undefined',
-            property_details_data: ukProperty.property_details
-          });
-          
-          const rentalEstimate = calculateRentalEstimate(
-            ukProperty.price, 
-            ukProperty.bedrooms,
-            ukProperty.property_type || ''
-          );
-          
-          // Create a PropertyListing from UKProperty
-          const listing: PropertyListing = {
-            id: ukProperty.id,
-            address: ukProperty.address,
-            price: ukProperty.price,
-            bedrooms: ukProperty.bedrooms,
-            bathrooms: ukProperty.bathrooms,
-            square_feet: ukProperty.square_feet,
-            image_url: ukProperty.image_url,
-            roi_estimate: calculateROI(ukProperty.price, rentalEstimate),
-            rental_estimate: rentalEstimate,
-            investment_highlights: {
-              location: ukProperty.address,
-              type: ukProperty.property_type || '',
-              features: ''
-            },
-            investment_score: 70, // Default score
-            created_at: ukProperty.created_at,
-            updated_at: ukProperty.updated_at,
-            source: "uk_property_api",
-            listing_url: "#",
-            description: ukProperty.description,
-            property_type: ukProperty.property_type,
-            agent: ukProperty.agent,
-            ai_analysis: {
-              summary: "Analysis not available for this property",
-              recommendation: "Consider researching the area further"
-            },
-            market_analysis: {
-              trend: "Market data not available",
-              demand: "Unknown"
-            },
-            bidding_recommendation: ukProperty.price * 0.95,
-            last_sold_price: null,
-            price_history: null,
-            latitude: ukProperty.latitude,
-            longitude: ukProperty.longitude,
-            property_details: ukProperty.property_details,
-            market_trends: {
-              appreciation_rate: 3.2,
-              market_activity: "Moderate" // Adding the missing required property
-            }
-          };
-          
-          console.log(`Mapped PropertyListing ${listing.id} property_details:`, listing.property_details);
-          return listing;
+          return mapUKPropertyToListing(prop as UKProperty);
         }
       });
       
@@ -424,21 +380,44 @@ const Invest = () => {
     setIsProposalDialogOpen(true);
   };
 
+  const fetchInitialProperties = async () => {
+    setLoading(true);
+    try {
+      // Get properties from the Zoopla API with a default search
+      const defaultSearch = "investment properties";
+      console.log("Fetching initial investment properties from Zoopla...");
+      
+      const zooplaProperties = await searchZooplaProperties(defaultSearch);
+      
+      if (zooplaProperties.length > 0) {
+        const mappedProperties = zooplaProperties.map(mapToPropertyListing);
+        setProperties(mappedProperties);
+      } else {
+        // Fallback to database if no properties found via API
+        console.log("No initial properties found via Zoopla API, falling back to database...");
+        const fallbackDbProperties = await searchDatabaseProperties("investment");
+        const mappedListings = fallbackDbProperties.map(mapUKPropertyToListing);
+        setProperties(mappedListings);
+      }
+    } catch (error) {
+      console.error("Error fetching initial properties:", error);
+      toast.error("Error loading properties. Please try again.");
+      // Fallback to database
+      try {
+        const fallbackDbProperties = await searchDatabaseProperties("investment");
+        const mappedListings = fallbackDbProperties.map(mapUKPropertyToListing);
+        setProperties(mappedListings);
+      } catch (dbError) {
+        console.error("Error fetching from database:", dbError);
+        setProperties([]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     // Choose between PropertyData and Zoopla API
-    const fetchInitialProperties = async () => {
-      try {
-        // Option 1: Fetch from Rightmove API
-        const mappedProperties = await fetchAllProperties();
-        const formattedProperties = mappedProperties.map(mapToPropertyListing);
-        setProperties(formattedProperties);
-        setSearchPerformed(true);
-      } catch (error) {
-        console.error("Error fetching initial properties:", error);
-        toast.error("Failed to load properties. Please try again later.");
-      }
-    };
-    
     fetchInitialProperties();
     
     const checkSession = async () => {
@@ -448,6 +427,66 @@ const Invest = () => {
     
     checkSession();
   }, []);
+
+  // Helper function to map UKProperty to PropertyListing
+  const mapUKPropertyToListing = (ukProperty: UKProperty): PropertyListing => {
+    const rentalEstimate = calculateRentalEstimate(
+      ukProperty.price, 
+      ukProperty.bedrooms,
+      ukProperty.property_type || ''
+    );
+    
+    return {
+      id: ukProperty.id,
+      address: ukProperty.address,
+      price: ukProperty.price,
+      bedrooms: ukProperty.bedrooms,
+      bathrooms: ukProperty.bathrooms,
+      square_feet: ukProperty.square_feet,
+      image_url: ukProperty.image_url,
+      roi_estimate: calculateROI(ukProperty.price, rentalEstimate),
+      rental_estimate: rentalEstimate,
+      investment_highlights: {
+        location: ukProperty.address,
+        type: ukProperty.property_type || '',
+        features: ''
+      },
+      investment_score: 70, // Default score
+      created_at: ukProperty.created_at,
+      updated_at: ukProperty.updated_at,
+      source: "uk_property_api",
+      listing_url: "#",
+      description: ukProperty.description,
+      property_type: ukProperty.property_type,
+      agent: ukProperty.agent,
+      ai_analysis: {
+        summary: "Analysis not available for this property",
+        recommendation: "Consider researching the area further"
+      },
+      market_analysis: {
+        trend: "Market data not available",
+        demand: "Unknown"
+      },
+      bidding_recommendation: ukProperty.price * 0.95,
+      last_sold_price: null,
+      price_history: null,
+      latitude: ukProperty.latitude,
+      longitude: ukProperty.longitude,
+      property_details: ukProperty.property_details || {
+        market_demand: "Medium", 
+        area_growth: "3.5%", 
+        crime_rate: "Average",
+        nearby_schools: 0,
+        energy_rating: "Unknown",
+        council_tax_band: "Unknown",
+        property_features: []
+      },
+      market_trends: {
+        appreciation_rate: 3.2,
+        market_activity: "Moderate"
+      }
+    };
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 pt-16">

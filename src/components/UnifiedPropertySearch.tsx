@@ -10,8 +10,8 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { searchRightmoveProperties, MappedProperty } from "@/utils/rightmove-api";
-import { supabase } from "@/integrations/supabase/client";
+import { searchZooplaProperties } from "@/utils/piloterr-api";
+import { MappedProperty } from "@/types/property-types";
 import { 
   MapPin, 
   Home, 
@@ -48,11 +48,12 @@ export const UnifiedPropertySearch = ({
     maxBeds: "3",
     maxPages: 3,
     analysisThreshold: 65,
-    searchMode: "rightmove"
+    searchMode: "zoopla"
   });
   
   const [loading, setLoading] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(true);
+  const [hasSearched, setHasSearched] = useState(false);
   
   const handleChange = (name: keyof UnifiedSearchParams, value: string | number) => {
     setParams(prev => ({
@@ -80,6 +81,12 @@ export const UnifiedPropertySearch = ({
     const minBeds = params.minBeds || "2";
     const maxBeds = params.maxBeds || "3";
     
+    // If already searched with same params and has results, don't search again to save API credits
+    if (hasSearched && !loading) {
+      toast.info("Using existing search results to save API credits");
+      return;
+    }
+    
     setLoading(true);
     onSearchStart?.();
 
@@ -91,7 +98,7 @@ export const UnifiedPropertySearch = ({
         propertyType: params.propertyType || "any"
       });
       
-      const mappedProperties = await searchRightmoveProperties(searchTerm);
+      const mappedProperties = await searchZooplaProperties(searchTerm);
       
       const filteredProperties = mappedProperties.filter(property => {
         // Property type check
@@ -133,7 +140,7 @@ export const UnifiedPropertySearch = ({
           bathrooms: property.bathrooms,
           square_feet: property.square_feet,
           image_url: property.image_url,
-          source: 'rightmove',
+          source: 'zoopla',
           listing_url: property.url || '',
           created_at: property.dateAdded,
           updated_at: property.listedSince,
@@ -172,7 +179,8 @@ export const UnifiedPropertySearch = ({
         };
       });
       
-      onPropertiesFound(propertyListings);
+      onPropertiesFound(propertyListings as PropertyListing[]);
+      setHasSearched(true);
       toast.success(`Found ${propertyListings.length} properties matching your criteria`);
     } catch (error) {
       console.error("Property search error:", error);
@@ -235,6 +243,7 @@ export const UnifiedPropertySearch = ({
         <Info className="h-5 w-5" />
         <p className="text-sm">
           Showing investment properties with 2-3 bedrooms between £70,000-£275,000.
+          <span className="ml-1 text-xs font-medium">Using Zoopla API with limited credits.</span>
         </p>
       </div>
       

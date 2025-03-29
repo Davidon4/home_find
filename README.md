@@ -1,51 +1,118 @@
-# Welcome to your Real Easte Bot 
+# Home Find Investment Property Search Application
 
-**Use your preferred IDE**
+A property investment search tool built with React, TypeScript, and Vite. This application helps investors find potential investment properties with key metrics like rental yield, ROI, and investment score.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Features
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+- Search for properties using the Piloterr Zoopla API
+- Filter properties by price range, bedrooms, and property type
+- View estimated rental income and ROI for each property
+- Property details including market information and analysis
+- Credit-efficient API usage with caching to reduce API calls
 
-Follow these steps:
+## Setup Instructions
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+### Prerequisites
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+- Node.js (v18 or higher)
+- NPM or Yarn
+- Piloterr API key for Zoopla property search
 
-# Step 3: Install the necessary dependencies.
-npm i
+### Installation
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+1. Clone the repository:
+```bash
+git clone [your-repository-url]
+cd home_find
 ```
 
-**Edit a file directly in GitHub**
+2. Install dependencies:
+```bash
+npm install
+# or
+yarn install
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+3. Set up environment variables:
+   - Copy `.env.example` to `.env`:
+     ```bash
+     cp .env.example .env
+     ```
+   - Edit `.env` and add your Piloterr API key:
+     ```
+     VITE_PILOTERR_API_KEY=your_api_key_here
+     ```
 
-**Use GitHub Codespaces**
+4. Start the development server:
+```bash
+npm run dev
+# or
+yarn dev
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## API Usage
 
-## What technologies are used for this project?
+The application uses the Piloterr API to search for Zoopla properties. The API has a limit of 50 credits, and each search uses 1 credit.
 
-This project is built with .
+### API Request Format
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```
+curl --location --request GET 'https://piloterr.com/api/v2/zoopla/property?query=example' \
+--header 'Content-Type: application/json' \
+--header 'x-api-key: <token>'
+```
 
-## I want to use a custom domain - is that possible?
+### Optimizing API Usage
 
-We don't support custom domains (yet). If you want to deploy your project under your own domain then we recommend using Netlify. Visit our docs for more details: [Custom domains](https://docs.lovable.dev/tips-tricks/custom-domain/)
+To optimize API usage and preserve credits:
+
+1. The application caches search results to avoid duplicate API calls
+2. A credit counter keeps track of remaining API credits
+3. When credits are exhausted, the application uses cached results
+4. The UI shows a notification when using cached results to save credits
+
+## Development Notes
+
+### Property Data Structure
+
+The Piloterr API returns property data in the following structure:
+
+```typescript
+interface ZooplaProperty {
+  propertyId: string;
+  title: string;
+  price: string;
+  address: string;
+  description: string;
+  agent: {
+    name: string;
+    phone: string;
+    email: string;
+  };
+  images: string[];
+  details: {
+    bedrooms: number;
+    bathrooms: number;
+    receptions: number;
+    squareFeet: number;
+    type: string;
+    tenure: string;
+    garden: string;
+    parking: string;
+  };
+  nearbySchools: string[];
+  additionalInfo: {
+    built: string;
+    energyRating: string;
+    councilTaxBand: string;
+  };
+  mapCoordinates: {
+    latitude: number;
+    longitude: number;
+  };
+}
+```
+
+## License
+
+[MIT License](LICENSE)

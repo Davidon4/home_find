@@ -17,5 +17,5 @@ export interface UnifiedSearchParams {
   maxBeds: string;
   maxPages: number;
   analysisThreshold: number;
-  searchMode: 'rightmove';
+  searchMode: 'rightmove' | 'zoopla';
 }
