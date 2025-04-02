@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { searchZooplaProperties } from "@/utils/piloterr-api";
+import { searchProperties, PropertySearchFilters } from "@/utils/backend-api";
 import { MappedProperty } from "@/types/property-types";
 import { 
   MapPin, 
@@ -87,6 +87,9 @@ export const UnifiedPropertySearch = ({
       return;
     }
     
+    // Close the filter panel when search is clicked
+    setFiltersVisible(false);
+    
     setLoading(true);
     onSearchStart?.();
 
@@ -98,7 +101,18 @@ export const UnifiedPropertySearch = ({
         propertyType: params.propertyType || "any"
       });
       
-      const mappedProperties = await searchZooplaProperties(searchTerm);
+      // Create filters object
+      const searchFilters: PropertySearchFilters = {
+        location: params.location,
+        propertyType: params.propertyType,
+        minPrice: Number(minPrice),
+        maxPrice: Number(maxPrice),
+        minBedrooms: Number(minBeds),
+        maxBedrooms: Number(maxBeds),
+      };
+      
+      // Call the updated API function
+      const mappedProperties = await searchProperties(searchTerm, searchFilters) as unknown as MappedProperty[];
       
       const filteredProperties = mappedProperties.filter(property => {
         // Property type check
@@ -243,7 +257,7 @@ export const UnifiedPropertySearch = ({
         <Info className="h-5 w-5" />
         <p className="text-sm">
           Showing investment properties with 2-3 bedrooms between £70,000-£275,000.
-          <span className="ml-1 text-xs font-medium">Using Zoopla API with limited credits.</span>
+          <span className="ml-1 text-xs font-medium">Using backend API.</span>
         </p>
       </div>
       

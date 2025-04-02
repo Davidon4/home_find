@@ -125,45 +125,11 @@ export const FilterPanel = ({ filters, onFilterChange, onClear }: FilterPanelPro
           </div>
         </div>
 
-        <Separator />
-
-        {/* Bathrooms */}
-        <div className="space-y-2">
-          <Label className="flex items-center gap-2">
-            <Bath className="h-4 w-4" />
-            Bathrooms
-          </Label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Bath className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                type="number"
-                placeholder="Min"
-                value={filters.minBathrooms}
-                onChange={(e) => onFilterChange('minBathrooms', e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <div className="relative flex-1">
-              <Bath className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                type="number"
-                placeholder="Max"
-                value={filters.maxBathrooms}
-                onChange={(e) => onFilterChange('maxBathrooms', e.target.value)}
-                className="pl-9"
-              />
-            </div>
-          </div>
-        </div>
-
-        <Separator />
-
         {/* Square Footage */}
-        <div className="space-y-2">
+        {/* <div className="space-y-2">
           <Label className="flex items-center gap-2">
             <Ruler className="h-4 w-4" />
-            Square Footage
+            Square Foota
           </Label>
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -187,33 +153,10 @@ export const FilterPanel = ({ filters, onFilterChange, onClear }: FilterPanelPro
               />
             </div>
           </div>
-        </div>
-
-        <Separator />
-
-        {/* Property Status */}
-        <div className="space-y-2">
-          <Label className="flex items-center gap-2">
-            <Building2 className="h-4 w-4" />
-            Property Status
-          </Label>
-          <Select value={filters.propertyStatus || "any"} onValueChange={(value) => onFilterChange('propertyStatus', value === "any" ? "" : value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Any status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="any">Any status</SelectItem>
-              <SelectItem value="Available">Available</SelectItem>
-              <SelectItem value="Under Offer">Under Offer</SelectItem>
-              <SelectItem value="Sold">Sold</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <Separator />
+        </div> */}
 
         {/* Date Added */}
-        <div className="space-y-2">
+        {/* <div className="space-y-2">
           <Label className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
             Date Added
@@ -230,7 +173,7 @@ export const FilterPanel = ({ filters, onFilterChange, onClear }: FilterPanelPro
               <SelectItem value="90">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
-        </div>
+        </div> */}
 
         <Separator />
 

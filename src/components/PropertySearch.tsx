@@ -10,18 +10,8 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-// Commenting out PropertyData imports
-// import { 
-//   searchDatabaseProperties, 
-//   searchPropertyData, 
-//   PropertyDataSearchParams,
-//   UKProperty,
-//   getPropertyDataApiKey
-// } from "@/utils/propertyApi";
 // Import Zoopla API functions
-import { 
-  searchZooplaProperties
-} from "@/utils/piloterr-api";
+import { searchProperties, Property, PropertySearchFilters } from "@/utils/backend-api";
 import { MappedProperty } from "@/types/property-types";
 import { 
   MapPin, 
@@ -44,9 +34,6 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
   const [location, setLocation] = useState("");
   const [loading, setLoading] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
-  const [searchMode, setSearchMode] = useState<"zoopla">("zoopla");
-  const [radiusMiles, setRadiusMiles] = useState("1");
-  const [lastApiCall, setLastApiCall] = useState(0);
   const [hasSearched, setHasSearched] = useState(false);
   const [filters, setFilters] = useState<FilterState>({
     propertyType: "",
@@ -70,7 +57,7 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
   const searchCountRef = useRef<number>(0);
   const MAX_SEARCHES_PER_SESSION = 5; // Reduced for Piloterr API credit conservation
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Basic input validation
@@ -82,69 +69,56 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
     
     // If already searched with same term and has results, don't search again to save API credits
     if (hasSearched && !loading && searchTerm.trim() === input) {
-      toast.info("Using existing search results to save API credits");
+      toast.info("Using existing search results");
       return;
     }
     
-    // All searches now go through Zoopla API
+    // Close the filter panel when search is clicked
+    setFiltersVisible(false);
+    
     setSearchTerm(input);
-    handleZooplaSearch(input);
-  };
-
-  const handleZooplaSearch = async (query: string) => {
-    // Check session search limit
-    if (searchCountRef.current >= MAX_SEARCHES_PER_SESSION) {
-      toast.error(`You've reached the maximum number of searches (${MAX_SEARCHES_PER_SESSION}) for this session to save API credits. Please refresh the page to continue.`);
-      return;
-    }
-
-    // Check rate limit
-    const now = Date.now();
-    const timeSinceLastSearch = now - lastSearchRef.current;
-    
-    if (timeSinceLastSearch < RATE_LIMIT_MS) {
-      const remainingTime = Math.ceil((RATE_LIMIT_MS - timeSinceLastSearch) / 1000);
-      toast.error(`Please wait ${remainingTime} second${remainingTime !== 1 ? 's' : ''} before searching again`);
-      return;
-    }
-
     setLoading(true);
     onSearchStart?.();
 
     try {
-      // Use Zoopla Piloterr API
-      console.log("Starting Zoopla search for:", query);
+      console.log("Starting property search for:", input);
       
-      // Search using Zoopla API
-      const properties = await searchZooplaProperties(query);
-      
-      // Apply filters to the results if needed
-      const filteredProperties = properties.filter(property => {
-        if (filters.propertyType && property.propertyType && 
-            !property.propertyType.toLowerCase().includes(filters.propertyType.toLowerCase())) {
-          return false;
-        }
-        if (filters.minPrice && property.price < Number(filters.minPrice)) return false;
-        if (filters.maxPrice && property.price > Number(filters.maxPrice)) return false;
-        if (filters.minBedrooms && property.bedrooms && property.bedrooms < Number(filters.minBedrooms)) return false;
-        if (filters.maxBedrooms && property.bedrooms && property.bedrooms > Number(filters.maxBedrooms)) return false;
-        return true;
+      // Log filters being applied
+      console.log("Applying filters:", {
+        location: location,
+        propertyType: filters.propertyType || "any",
+        price: `£${filters.minPrice || "0"}-£${filters.maxPrice || "unlimited"}`,
+        bedrooms: `${filters.minBedrooms || "any"}-${filters.maxBedrooms || "any"}`,
       });
+
+      // Create filters object
+      const searchFilters: PropertySearchFilters = {
+        location: location,
+        propertyType: filters.propertyType,
+        minPrice: filters.minPrice ? Number(filters.minPrice) : undefined,
+        maxPrice: filters.maxPrice ? Number(filters.maxPrice) : undefined,
+        minBedrooms: filters.minBedrooms ? Number(filters.minBedrooms) : undefined,
+        maxBedrooms: filters.maxBedrooms ? Number(filters.maxBedrooms) : undefined,
+      };
+
+      // Call the updated API function
+      const properties = await searchProperties(input, searchFilters) as unknown as MappedProperty[];
       
-      console.log(`Found ${filteredProperties.length} properties from Zoopla search`);
-      onPropertiesFound(filteredProperties);
+      console.log(`Found ${properties.length} properties`);
+      onPropertiesFound(properties);
       setHasSearched(true);
       
-      if (filteredProperties.length === 0) {
+      if (properties.length === 0) {
         toast.info("No properties found matching your search. Try a different search term.");
       } else {
-        toast.success(`Found ${filteredProperties.length} properties`);
+        toast.success(`Found ${properties.length} properties`);
       }
-      
-      lastSearchRef.current = now;
+
+      // Update rate limit tracking
+      lastSearchRef.current = Date.now();
       searchCountRef.current += 1;
     } catch (error) {
-      console.error("Zoopla search error:", error);
+      console.error("Error searching properties:", error);
       toast.error(error instanceof Error ? error.message : "Error searching for properties");
       onPropertiesFound([]);
     } finally {
@@ -180,7 +154,7 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
       <div className="flex items-center gap-2 p-2 mb-4 bg-blue-50 text-blue-700 rounded-md">
         <Info className="h-5 w-5" />
         <p className="text-sm">
-          Searching properties via Zoopla API (limited to 50 credits)
+          Searching properties via real backend API
         </p>
       </div>
       
@@ -232,7 +206,7 @@ export const PropertySearch = ({ onPropertiesFound, onSearchStart, onSearchCompl
           ) : (
             <span className="flex items-center">
               <Search className="mr-2 h-4 w-4" />
-              Search Zoopla Properties
+              Search Properties
             </span>
           )}
         </Button>

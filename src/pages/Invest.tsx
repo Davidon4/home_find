@@ -9,7 +9,7 @@ import { Link } from "react-router-dom";
 import { PropertySearch } from "@/components/PropertySearch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MappedProperty } from "@/types/property-types";
-import { searchZooplaProperties } from "@/utils/piloterr-api";
+import { searchProperties, Property, PropertySearchFilters } from "@/utils/backend-api";
 import { UKProperty, searchDatabaseProperties } from "@/utils/propertyApi";
 import { Session } from "@supabase/supabase-js";
 import { PropertyProposalDialog } from "@/components/PropertyProposalDialog";
@@ -176,9 +176,9 @@ const Invest = () => {
 
   const API_BASE_URL = "";
 
-  const mapToPropertyListing = (property: MappedProperty): PropertyListing => {
+  const mapToPropertyListing = (property: Property): PropertyListing => {
     const rentalEstimate = property.rental_estimate || 
-      calculateRentalEstimate(property.price, property.bedrooms, property.propertyType);
+      calculateRentalEstimate(property.price, property.bedrooms, property.property_type || '');
     const roiEstimate = property.roi_estimate || 
       calculateROI(property.price, rentalEstimate);
     
@@ -194,16 +194,16 @@ const Invest = () => {
       rental_estimate: rentalEstimate,
       investment_highlights: {
         location: property.address,
-        type: property.propertyType,
-        features: Array.isArray(property.features) ? property.features.slice(0, 3).join(", ") : ""
+        type: property.property_type || '',
+        features: Array.isArray(property.property_details?.property_features) ? property.property_details.property_features.slice(0, 3).join(", ") : ""
       },
       investment_score: calculateInvestmentScore(property),
-      created_at: property.dateAdded,
-      updated_at: property.listedSince,
+      created_at: property.created_at,
+      updated_at: property.updated_at,
       source: "rightmove",
-      listing_url: property.url || "#",
+      listing_url: property.rightmove_url || "#",
       description: property.description,
-      property_type: property.propertyType,
+      property_type: property.property_type,
       agent: property.agent,
       ai_analysis: {
         summary: "Analysis not available for this property",
@@ -216,13 +216,21 @@ const Invest = () => {
       bidding_recommendation: property.price * 0.95,
       last_sold_price: null,
       price_history: null,
-      latitude: property.location?.latitude,
-      longitude: property.location?.longitude,
-      property_details: property.propertyDetails,
-      market_trends: property.marketTrends ? 
+      latitude: property.location.latitude,
+      longitude: property.location.longitude,
+      property_details: {
+        market_demand: property.property_details?.market_demand || "Medium",
+        area_growth: property.property_details?.area_growth || "3.5%",
+        crime_rate: property.property_details?.crime_rate || "Average",
+        nearby_schools: property.property_details?.nearby_schools || 0,
+        energy_rating: property.property_details?.energy_rating || "Unknown",
+        council_tax_band: property.property_details?.council_tax_band || "Unknown",
+        property_features: property.property_details?.property_features || []
+      },
+      market_trends: property.market_trends ? 
         { 
-          appreciation_rate: property.marketTrends.appreciation_rate || 3.2,
-          market_activity: property.marketTrends.market_activity || "Moderate" 
+          appreciation_rate: property.market_trends.appreciation_rate || 3.2,
+          market_activity: property.market_trends.market_activity || "Moderate" 
         } : 
         {
           appreciation_rate: 3.2,
@@ -257,13 +265,13 @@ const Invest = () => {
     return (annualRental / price) * 100; // Return as percentage
   };
 
-  const calculateInvestmentScore = (property: MappedProperty): number => {
+  const calculateInvestmentScore = (property: Property): number => {
     let score = 70;
     
     if (property.bedrooms && property.bedrooms >= 3) score += 5;
     if (property.bathrooms && property.bathrooms >= 2) score += 5;
     if (property.square_feet && property.square_feet > 1000) score += 5;
-    if (Array.isArray(property.features) && property.features.length > 5) score += 5;
+    if (Array.isArray(property.property_details?.property_features) && property.property_details.property_features.length > 5) score += 5;
     if (property.price < 200000) score += 10;
     
     return Math.min(100, Math.max(0, score));
@@ -272,9 +280,8 @@ const Invest = () => {
   const fetchProperties = async () => {
     setLoading(true);
     try {
-      const mappedProperties = await searchZooplaProperties("investment properties");
-      const analysisPromises = mappedProperties.map(mapToPropertyListing);
-      const formattedProperties = await Promise.all(analysisPromises);
+      const properties = await searchProperties("investment properties");
+      const formattedProperties = properties.map(mapToPropertyListing);
       setProperties(formattedProperties);
     } catch (error) {
       console.error("Error fetching properties:", error);
@@ -284,7 +291,34 @@ const Invest = () => {
     }
   };
 
-  const searchProperties = async (searchTerm: string) => {
+  const fetchInitialProperties = async () => {
+    setLoading(true);
+    try {
+      const defaultSearch = "investment properties";
+      console.log("Fetching initial investment properties...");
+      toast.info("Loading investment properties...");
+      
+      const properties = await searchProperties(defaultSearch);
+      
+      if (properties.length > 0) {
+        const mappedProperties = properties.map(mapToPropertyListing);
+        setProperties(mappedProperties);
+        toast.success(`Loaded ${mappedProperties.length} investment properties`);
+      } else {
+        console.log("No initial properties found");
+        toast.info("No properties found. Try searching with specific criteria.");
+        setProperties([]);
+      }
+    } catch (error) {
+      console.error("Error fetching initial properties:", error);
+      toast.error("Error loading properties. Please try a manual search.");
+      setProperties([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const searchForProperties = async (searchTerm: string) => {
     if (!searchTerm.trim()) {
       toast.error("Please enter a search term");
       return;
@@ -292,17 +326,19 @@ const Invest = () => {
 
     setLoading(true);
     setSearchParams({ searchTerm });
-    console.log("Searching Zoopla properties for:", searchTerm);
+    console.log("Searching properties for:", searchTerm);
 
     try {
-      const foundProperties = await searchZooplaProperties(searchTerm);
+      const filters: PropertySearchFilters = {};
       
-      if (foundProperties.length === 0) {
+      const properties = await searchProperties(searchTerm, filters);
+      
+      if (properties.length === 0) {
         toast.info("No properties found. Try a different search term.");
         setProperties([]);
       } else {
-        const mappedProperties = foundProperties.map(mapToPropertyListing);
-        handlePropertiesFound(mappedProperties);
+        const mappedProperties = properties.map(mapToPropertyListing);
+        setProperties(mappedProperties);
         toast.success(`Found ${mappedProperties.length} properties`);
       }
     } catch (error) {
@@ -334,24 +370,73 @@ const Invest = () => {
       searchQuery += " " + searchCriteria.bedrooms + " bedroom";
     }
     
-    searchProperties(searchQuery.trim());
+    searchForProperties(searchQuery.trim());
   };
 
-  const handlePropertiesFound = async (foundProperties: MappedProperty[] | UKProperty[]) => {
+  const handlePropertiesFound = async (foundProperties: MappedProperty[]) => {
     // Map the found properties to our PropertyListing format
     console.log("Found Properties:", foundProperties);
     
     try {
       setLoading(true);
       
-      const propertyPromises = foundProperties.map(async prop => {
-        if ('propertyType' in prop) {
-          // It's a MappedProperty
-          return mapToPropertyListing(prop as MappedProperty);
-        } else {
-          // It's a UKProperty, map it to PropertyListing
-          return mapUKPropertyToListing(prop as UKProperty);
-        }
+      const propertyPromises = foundProperties.map(async (prop: MappedProperty) => {
+        const rentalEstimate = prop.rental_estimate || 
+          calculateRentalEstimate(prop.price, prop.bedrooms, prop.propertyType || '');
+        
+        const roiEstimate = prop.roi_estimate || 
+          calculateROI(prop.price, rentalEstimate);
+        
+        return {
+          id: prop.id,
+          address: prop.address,
+          price: prop.price,
+          bedrooms: prop.bedrooms,
+          bathrooms: prop.bathrooms,
+          square_feet: prop.square_feet,
+          image_url: prop.image_url,
+          roi_estimate: roiEstimate,
+          rental_estimate: rentalEstimate,
+          investment_highlights: {
+            location: prop.address,
+            type: prop.propertyType || '',
+            features: Array.isArray(prop.features) ? prop.features.slice(0, 3).join(", ") : ""
+          },
+          investment_score: 70,
+          created_at: prop.dateAdded || new Date().toISOString(),
+          updated_at: prop.listedSince || new Date().toISOString(),
+          source: "rightmove",
+          listing_url: prop.url || "#",
+          description: prop.description,
+          property_type: prop.propertyType,
+          agent: prop.agent,
+          ai_analysis: {
+            summary: "Analysis not available for this property",
+            recommendation: "Consider researching the area further"
+          },
+          market_analysis: {
+            trend: "Market data not available",
+            demand: "Unknown"
+          },
+          bidding_recommendation: prop.price * 0.95,
+          last_sold_price: null,
+          price_history: null,
+          latitude: prop.location?.latitude,
+          longitude: prop.location?.longitude,
+          property_details: {
+            market_demand: "Medium",
+            area_growth: "3.5%",
+            crime_rate: "Average",
+            nearby_schools: 0,
+            energy_rating: "Unknown",
+            council_tax_band: "Unknown",
+            property_features: []
+          },
+          market_trends: {
+            appreciation_rate: 3.2,
+            market_activity: "Moderate"
+          }
+        };
       });
       
       // Wait for all the property mappings to complete
@@ -380,45 +465,10 @@ const Invest = () => {
     setIsProposalDialogOpen(true);
   };
 
-  const fetchInitialProperties = async () => {
-    setLoading(true);
-    try {
-      // Get properties from the Zoopla API with a default search
-      const defaultSearch = "investment properties";
-      console.log("Fetching initial investment properties from Zoopla...");
-      
-      const zooplaProperties = await searchZooplaProperties(defaultSearch);
-      
-      if (zooplaProperties.length > 0) {
-        const mappedProperties = zooplaProperties.map(mapToPropertyListing);
-        setProperties(mappedProperties);
-      } else {
-        // Fallback to database if no properties found via API
-        console.log("No initial properties found via Zoopla API, falling back to database...");
-        const fallbackDbProperties = await searchDatabaseProperties("investment");
-        const mappedListings = fallbackDbProperties.map(mapUKPropertyToListing);
-        setProperties(mappedListings);
-      }
-    } catch (error) {
-      console.error("Error fetching initial properties:", error);
-      toast.error("Error loading properties. Please try again.");
-      // Fallback to database
-      try {
-        const fallbackDbProperties = await searchDatabaseProperties("investment");
-        const mappedListings = fallbackDbProperties.map(mapUKPropertyToListing);
-        setProperties(mappedListings);
-      } catch (dbError) {
-        console.error("Error fetching from database:", dbError);
-        setProperties([]);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    // Choose between PropertyData and Zoopla API
+    // Automatically fetch properties when the component mounts
     fetchInitialProperties();
+    setSearchPerformed(true); // Mark search as performed so results are displayed
     
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
@@ -472,14 +522,14 @@ const Invest = () => {
       price_history: null,
       latitude: ukProperty.latitude,
       longitude: ukProperty.longitude,
-      property_details: ukProperty.property_details || {
-        market_demand: "Medium", 
-        area_growth: "3.5%", 
-        crime_rate: "Average",
-        nearby_schools: 0,
-        energy_rating: "Unknown",
-        council_tax_band: "Unknown",
-        property_features: []
+      property_details: {
+        market_demand: ukProperty.property_details?.market_demand || "Medium",
+        area_growth: ukProperty.property_details?.area_growth || "3.5%",
+        crime_rate: ukProperty.property_details?.crime_rate || "Average",
+        nearby_schools: ukProperty.property_details?.nearby_schools || 0,
+        energy_rating: ukProperty.property_details?.energy_rating || "Unknown",
+        council_tax_band: ukProperty.property_details?.council_tax_band || "Unknown",
+        property_features: ukProperty.property_details?.property_features || []
       },
       market_trends: {
         appreciation_rate: 3.2,
@@ -518,13 +568,13 @@ const Invest = () => {
 
         <div className="mb-8">
           <PropertySearch 
-            onPropertiesFound={handlePropertiesFound}
+            onPropertiesFound={(properties: MappedProperty[]) => handlePropertiesFound(properties)}
             onSearchStart={() => setLoading(true)}
             onSearchComplete={() => setLoading(false)}
           />
         </div>
 
-        {searchPerformed && (
+        {properties.length > 0 && (
           <div className="flex justify-between items-center mb-6">
             <div className="text-sm text-gray-500">
               {properties.length} {properties.length === 1 ? 'property' : 'properties'} found
@@ -571,13 +621,6 @@ const Invest = () => {
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No properties found</h3>
             <p className="text-gray-600 mb-6">Try adjusting your search criteria or generate some listings</p>
-            <Button 
-              variant="outline" 
-              onClick={() => setActiveTab("generate")}
-              className="mx-auto"
-            >
-              Generate Property Listings
-            </Button>
           </div>
         ) : (
           <div className="text-center py-20 bg-gray-50 rounded-lg border border-gray-200">
