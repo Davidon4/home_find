@@ -13,6 +13,10 @@ interface PropertyCardProps {
 }
 
 export const PropertyCard = ({ property }: PropertyCardProps) => {
+  // Debug property data
+  console.log("Rendering PropertyCard for:", property.id);
+  console.log("Property type:", property.property_type);
+  
   const bidRec = getBidRecommendation(property);
   const addressParts = property.address.split(',');
   const city = addressParts[1]?.trim() || '';
@@ -48,9 +52,9 @@ export const PropertyCard = ({ property }: PropertyCardProps) => {
 
       <CardHeader>
         <CardTitle className="line-clamp-1">{property.address}</CardTitle>
-        {property.property_type && (
-          <CardDescription>{property.property_type}</CardDescription>
-        )}
+        <CardDescription className="capitalize">
+          {property.property_type || property.investment_highlights?.type || 'Property'}
+        </CardDescription>
       </CardHeader>
 
       <CardContent>

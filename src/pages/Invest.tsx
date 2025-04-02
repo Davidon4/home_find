@@ -30,6 +30,7 @@ interface PropertyListing {
   updated_at: string;
   source: string;
   listing_url: string;
+  listing_type: string;
   description?: string;
   property_type?: string;
   agent?: {
@@ -177,10 +178,17 @@ const Invest = () => {
   const API_BASE_URL = "";
 
   const mapToPropertyListing = (property: Property): PropertyListing => {
+    // Debug property data coming in
+    console.log("Mapping property:", property.id);
+    console.log("Property type:", property.property_type);
+    
     const rentalEstimate = property.rental_estimate || 
       calculateRentalEstimate(property.price, property.bedrooms, property.property_type || '');
     const roiEstimate = property.roi_estimate || 
       calculateROI(property.price, rentalEstimate);
+    
+    // Ensure property_type is never undefined
+    const propertyType = property.property_type || 'Property';
     
     return {
       id: property.id,
@@ -194,7 +202,7 @@ const Invest = () => {
       rental_estimate: rentalEstimate,
       investment_highlights: {
         location: property.address,
-        type: property.property_type || '',
+        type: propertyType,
         features: Array.isArray(property.property_details?.property_features) ? property.property_details.property_features.slice(0, 3).join(", ") : ""
       },
       investment_score: calculateInvestmentScore(property),
@@ -203,7 +211,8 @@ const Invest = () => {
       source: "rightmove",
       listing_url: property.rightmove_url || "#",
       description: property.description,
-      property_type: property.property_type,
+      property_type: propertyType,
+      listing_type: property.listing_type,
       agent: property.agent,
       ai_analysis: {
         summary: "Analysis not available for this property",
@@ -294,24 +303,36 @@ const Invest = () => {
   const fetchInitialProperties = async () => {
     setLoading(true);
     try {
-      const defaultSearch = "investment properties";
-      console.log("Fetching initial investment properties...");
-      toast.info("Loading investment properties...");
+      const defaultSearch = "investment property"; // Using a more generic search term
+      console.log("Fetching initial properties from database...");
       
       const properties = await searchProperties(defaultSearch);
       
+      // Log raw properties from Supabase
+      console.log("Raw properties from Supabase:", properties.map(p => ({
+        id: p.id,
+        property_type: p.property_type,
+        address: p.address
+      })));
+      
       if (properties.length > 0) {
         const mappedProperties = properties.map(mapToPropertyListing);
+        
+        // Log mapped properties to see if property_type is preserved
+        console.log("Mapped properties:", mappedProperties.map(p => ({
+          id: p.id,
+          property_type: p.property_type,
+          address: p.address
+        })));
+        
         setProperties(mappedProperties);
-        toast.success(`Loaded ${mappedProperties.length} investment properties`);
+        console.log(`Found ${mappedProperties.length} properties`);
       } else {
-        console.log("No initial properties found");
-        toast.info("No properties found. Try searching with specific criteria.");
+        console.log("No initial properties found in database");
         setProperties([]);
       }
     } catch (error) {
       console.error("Error fetching initial properties:", error);
-      toast.error("Error loading properties. Please try a manual search.");
       setProperties([]);
     } finally {
       setLoading(false);
@@ -382,7 +403,9 @@ const Invest = () => {
       
       const propertyPromises = foundProperties.map(async (prop: MappedProperty) => {
         const rentalEstimate = prop.rental_estimate || 
-          calculateRentalEstimate(prop.price, prop.bedrooms, prop.propertyType || '');
+          calculateRentalEstimate(prop.price, prop.bedrooms, prop.property_type || '');
+
+          console.log("PropertyType=>", prop.property_type)
         
         const roiEstimate = prop.roi_estimate || 
           calculateROI(prop.price, rentalEstimate);
@@ -399,7 +422,7 @@ const Invest = () => {
           rental_estimate: rentalEstimate,
           investment_highlights: {
             location: prop.address,
-            type: prop.propertyType || '',
+            type: prop.property_type || '',
             features: Array.isArray(prop.features) ? prop.features.slice(0, 3).join(", ") : ""
           },
           investment_score: 70,
@@ -408,7 +431,8 @@ const Invest = () => {
           source: "rightmove",
           listing_url: prop.url || "#",
           description: prop.description,
-          property_type: prop.propertyType,
+          property_type: prop.property_type,
+          listing_type: "for-sale",
           agent: prop.agent,
           ai_analysis: {
             summary: "Analysis not available for this property",
@@ -466,9 +490,9 @@ const Invest = () => {
   };
 
   useEffect(() => {
-    // Automatically fetch properties when the component mounts
+    // Fetch properties automatically when component mounts
     fetchInitialProperties();
-    setSearchPerformed(true); // Mark search as performed so results are displayed
+    setSearchPerformed(true); // Mark as searched so results display properly
     
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
@@ -479,64 +503,64 @@ const Invest = () => {
   }, []);
 
   // Helper function to map UKProperty to PropertyListing
-  const mapUKPropertyToListing = (ukProperty: UKProperty): PropertyListing => {
-    const rentalEstimate = calculateRentalEstimate(
-      ukProperty.price, 
-      ukProperty.bedrooms,
-      ukProperty.property_type || ''
-    );
+  // const mapUKPropertyToListing = (ukProperty: UKProperty): PropertyListing => {
+  //   const rentalEstimate = calculateRentalEstimate(
+  //     ukProperty.price, 
+  //     ukProperty.bedrooms,
+  //     ukProperty.property_type || ''
+  //   );
     
-    return {
-      id: ukProperty.id,
-      address: ukProperty.address,
-      price: ukProperty.price,
-      bedrooms: ukProperty.bedrooms,
-      bathrooms: ukProperty.bathrooms,
-      square_feet: ukProperty.square_feet,
-      image_url: ukProperty.image_url,
-      roi_estimate: calculateROI(ukProperty.price, rentalEstimate),
-      rental_estimate: rentalEstimate,
-      investment_highlights: {
-        location: ukProperty.address,
-        type: ukProperty.property_type || '',
-        features: ''
-      },
-      investment_score: 70, // Default score
-      created_at: ukProperty.created_at,
-      updated_at: ukProperty.updated_at,
-      source: "uk_property_api",
-      listing_url: "#",
-      description: ukProperty.description,
-      property_type: ukProperty.property_type,
-      agent: ukProperty.agent,
-      ai_analysis: {
-        summary: "Analysis not available for this property",
-        recommendation: "Consider researching the area further"
-      },
-      market_analysis: {
-        trend: "Market data not available",
-        demand: "Unknown"
-      },
-      bidding_recommendation: ukProperty.price * 0.95,
-      last_sold_price: null,
-      price_history: null,
-      latitude: ukProperty.latitude,
-      longitude: ukProperty.longitude,
-      property_details: {
-        market_demand: ukProperty.property_details?.market_demand || "Medium",
-        area_growth: ukProperty.property_details?.area_growth || "3.5%",
-        crime_rate: ukProperty.property_details?.crime_rate || "Average",
-        nearby_schools: ukProperty.property_details?.nearby_schools || 0,
-        energy_rating: ukProperty.property_details?.energy_rating || "Unknown",
-        council_tax_band: ukProperty.property_details?.council_tax_band || "Unknown",
-        property_features: ukProperty.property_details?.property_features || []
-      },
-      market_trends: {
-        appreciation_rate: 3.2,
-        market_activity: "Moderate"
-      }
-    };
-  };
+  //   return {
+  //     id: ukProperty.id,
+  //     address: ukProperty.address,
+  //     price: ukProperty.price,
+  //     bedrooms: ukProperty.bedrooms,
+  //     bathrooms: ukProperty.bathrooms,
+  //     square_feet: ukProperty.square_feet,
+  //     image_url: ukProperty.image_url,
+  //     roi_estimate: calculateROI(ukProperty.price, rentalEstimate),
+  //     rental_estimate: rentalEstimate,
+  //     investment_highlights: {
+  //       location: ukProperty.address,
+  //       type: ukProperty.property_type || '',
+  //       features: ''
+  //     },
+  //     investment_score: 70, // Default score
+  //     created_at: ukProperty.created_at,
+  //     updated_at: ukProperty.updated_at,
+  //     source: "uk_property_api",
+  //     listing_url: "#",
+  //     description: ukProperty.description,
+  //     property_type: ukProperty.property_type,
+  //     agent: ukProperty.agent,
+  //     ai_analysis: {
+  //       summary: "Analysis not available for this property",
+  //       recommendation: "Consider researching the area further"
+  //     },
+  //     market_analysis: {
+  //       trend: "Market data not available",
+  //       demand: "Unknown"
+  //     },
+  //     bidding_recommendation: ukProperty.price * 0.95,
+  //     last_sold_price: null,
+  //     price_history: null,
+  //     latitude: ukProperty.latitude,
+  //     longitude: ukProperty.longitude,
+  //     property_details: {
+  //       market_demand: ukProperty.property_details?.market_demand || "Medium",
+  //       area_growth: ukProperty.property_details?.area_growth || "3.5%",
+  //       crime_rate: ukProperty.property_details?.crime_rate || "Average",
+  //       nearby_schools: ukProperty.property_details?.nearby_schools || 0,
+  //       energy_rating: ukProperty.property_details?.energy_rating || "Unknown",
+  //       council_tax_band: ukProperty.property_details?.council_tax_band || "Unknown",
+  //       property_features: ukProperty.property_details?.property_features || []
+  //     },
+  //     market_trends: {
+  //       appreciation_rate: 3.2,
+  //       market_activity: "Moderate"
+  //     }
+  //   };
+  // };
 
   return (
     <div className="min-h-screen bg-gray-50 pt-16">
@@ -620,7 +644,7 @@ const Invest = () => {
               <Search className="h-8 w-8 text-gray-400" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No properties found</h3>
-            <p className="text-gray-600 mb-6">Try adjusting your search criteria or generate some listings</p>
+            <p className="text-gray-600 mb-6">Try adjusting your search to property in Edinburgh</p>
           </div>
         ) : (
           <div className="text-center py-20 bg-gray-50 rounded-lg border border-gray-200">

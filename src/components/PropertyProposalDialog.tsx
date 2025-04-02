@@ -228,6 +228,8 @@ ${propertyDetails.recommendation}
     }
   };
 
+  console.log("Property details=>", property);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -289,10 +291,6 @@ ${propertyDetails.recommendation}
                 <div>
                   <span className="block text-gray-500">Bedrooms</span>
                   <span className="font-medium">{property.bedrooms || 'Unknown'}</span>
-                </div>
-                <div>
-                  <span className="block text-gray-500">Bathrooms</span>
-                  <span className="font-medium">{property.bathrooms || 'Unknown'}</span>
                 </div>
                 {property.square_feet && (
                   <div>

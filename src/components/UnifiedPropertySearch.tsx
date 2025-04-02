@@ -116,9 +116,9 @@ export const UnifiedPropertySearch = ({
       
       const filteredProperties = mappedProperties.filter(property => {
         // Property type check
-        if (params.propertyType && property.propertyType) {
+        if (params.propertyType && property.property_type) {
           const propertyTypeFilter = params.propertyType.toLowerCase();
-          const actualPropertyType = property.propertyType.toLowerCase();
+          const actualPropertyType = property.property_type.toLowerCase();
           
           if (propertyTypeFilter && !actualPropertyType.includes(propertyTypeFilter)) {
             return false;
@@ -141,7 +141,7 @@ export const UnifiedPropertySearch = ({
       
       const propertyListings = filteredProperties.map(property => {
         const rentalEstimate = property.rental_estimate || 
-          calculateRentalEstimate(property.price, property.bedrooms, property.propertyType);
+          calculateRentalEstimate(property.price, property.bedrooms, property.property_type);
         
         const roiEstimate = property.roi_estimate || 
           calculateROI(property.price, rentalEstimate);
@@ -162,7 +162,7 @@ export const UnifiedPropertySearch = ({
           rental_estimate: rentalEstimate,
           investment_highlights: {
             location: property.address,
-            type: property.propertyType || '',
+            type: property.property_type || '',
             features: Array.isArray(property.features) ? property.features.slice(0, 3).join(", ") : ""
           },
           investment_score: calculateInvestmentScore(property),
@@ -185,11 +185,11 @@ export const UnifiedPropertySearch = ({
             market_activity: property.marketTrends?.market_activity || "Moderate"
           },
           description: property.description,
-          property_type: property.propertyType,
+          property_type: property.property_type,
           agent: property.agent,
           latitude: property.location?.latitude,
           longitude: property.location?.longitude,
-          property_details: property.propertyDetails
+          property_details: property.property_details
         };
       });
       

@@ -35,7 +35,7 @@ export interface MappedProperty {
   bathrooms: number | null;
   square_feet: number | null;
   description: string | null;
-  propertyType: string | null;
+  property_type: string | null;
   image_url: string | null;
   url: string | null;
   features: string[];
@@ -43,9 +43,10 @@ export interface MappedProperty {
   listedSince: string;
   agent: PropertyAgent;
   rental_estimate?: number;
+  listing_type: string;
   roi_estimate?: number;
   location?: PropertyLocation;
-  propertyDetails?: PropertyDetails;
+  property_details?: PropertyDetails;
   marketTrends?: MarketTrends;
 }
 
