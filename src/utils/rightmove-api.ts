@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import axios from 'axios';
 
 /**
  * Rightmove API integration
@@ -18,9 +19,9 @@ export interface RightmoveProperty {
   description?: string;
   square_feet?: number | null;
   property_details?: {
-    tenure?: string;
-    time_remaining_on_lease?: string;
-    [key: string]: unknown;
+  tenure?: string;
+  time_remaining_on_lease?: string;
+  [key: string]: unknown;
   };
   rightmove_url?: string;
   image_url?: string | null;
@@ -382,4 +383,439 @@ export async function searchRightmoveProperties(searchTerm: string): Promise<Map
     console.error('Error searching Rightmove properties:', error);
     return [];
   }
-} 
+}
+
+/**
+ * PaTMa API integration
+ * Based on the API documentation with endpoint: /api/prospector/{version}/list-property/
+ */
+export const fetchPatmaPropertyData = async (
+  latitude = 51.507351, 
+  longitude = -0.127758, 
+  radius = 5,
+  filters = {
+    minBedrooms: 3,
+    minBathrooms: 2,
+    minPrice: 70000,
+    maxPrice: 275000,
+    propertyTypes: ['semi-detached', 'detached', 'terraced'],
+    includeKeywords: ['cash only', 'modernization', 'modernization needed'],
+    excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction']
+  }
+) => {
+  const apiKey = import.meta.env.VITE_ACCESS_TOKEN;
+  console.log("Using API Key:", apiKey);
+  
+  try {
+    // Make separate API calls for each property type to overcome the API limitation
+    const allResults = [];
+    
+    // Valid property types according to the API
+    const validPropertyTypes = filters.propertyTypes.filter(type => 
+      ['flat', 'terraced', 'semi-detached', 'detached'].includes(type)
+    );
+    
+    if (validPropertyTypes.length === 0) {
+      validPropertyTypes.push('terraced', 'semi-detached', 'detached'); // Default if none specified
+    }
+    
+    console.log("Searching for property types:", validPropertyTypes);
+    console.log("Looking for keywords:", filters.includeKeywords ? filters.includeKeywords.join(', ') : 'None');
+    
+    // Make a separate request for each property type
+    for (const propertyType of validPropertyTypes) {
+      try {
+        console.log(`Fetching ${propertyType} properties...`);
+        const response = await axios.get('https://app.patma.co.uk/api/prospector/v1/list-property/', {
+          headers: {
+            'Authorization': `Token ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          params: {
+            api_key: apiKey,
+            lat: latitude,
+            long: longitude,
+            radius: radius,
+            require_sold_price: true,
+            include_sold_history: true,
+            page: 1,
+            page_size: 100,
+            min_bedrooms: filters.minBedrooms,
+            min_bathrooms: filters.minBathrooms,
+            min_price: filters.minPrice,
+            max_price: filters.maxPrice,
+            property_type: propertyType // Single property type per request
+          }
+        });
+        
+        if (response.data && response.data.status === 'success') {
+          const results = response.data.data.available_results || [];
+          console.log(`Found ${results.length} ${propertyType} properties`);
+          
+          // Add fallback descriptions for properties that don't have them
+          const resultsWithDescriptions = results.map(property => {
+            if (!property.description || property.description.trim() === '') {
+              // Generate a basic description based on property details
+              const bedroomText = property.bedrooms ? `${property.bedrooms} bedroom` : '';
+              const propertyTypeText = property.property_type || propertyType;
+              const locationText = property.address ? 
+                `located in ${property.address.split(',').pop()?.trim() || 'a popular area'}` : 
+                '';
+              
+              // Use proper assignment that preserves the property type
+              return {
+                ...property,
+                description: `A ${bedroomText} ${propertyTypeText} ${locationText}. This property is available for purchase and could be an excellent investment opportunity. Contact the agent for more details and to arrange a viewing.`
+              };
+            }
+            return property;
+          });
+          
+          allResults.push(...resultsWithDescriptions);
+        }
+      } catch (error) {
+        console.error(`Error fetching ${propertyType} properties:`, error);
+      }
+    }
+    
+    console.log(`Found a total of ${allResults.length} properties across all types`);
+    
+    // Apply additional filters to ensure property requirements are met
+    let filteredResults = allResults;
+    
+    // Filter by price to ensure API filters are working correctly
+    filteredResults = filteredResults.filter(property => {
+      // Get the most relevant price from the property
+      const propertyPrice = property.price || property.asking_price || property.last_sold_price || 0;
+      
+      // Only keep properties within our price range
+      return propertyPrice >= filters.minPrice && propertyPrice <= filters.maxPrice;
+    });
+    
+    console.log(`After price filtering (£${filters.minPrice/1000}K-£${filters.maxPrice/1000}K): ${filteredResults.length} properties remain`);
+    
+    // Filter to INCLUDE properties with specific keywords
+    if (filters.includeKeywords && filters.includeKeywords.length > 0) {
+      const keywordFilteredResults = filteredResults.filter(property => {
+        const addressLower = (property.address || '').toLowerCase();
+        const descriptionLower = (property.description || '').toLowerCase();
+        
+        // Include property if ANY of the keywords are found in the address or description
+        return filters.includeKeywords.some(keyword => 
+          addressLower.includes(keyword.toLowerCase()) || 
+          descriptionLower.includes(keyword.toLowerCase())
+        );
+      });
+      
+      // If we found properties with the desired keywords, use only those
+      if (keywordFilteredResults.length > 0) {
+        filteredResults = keywordFilteredResults;
+        console.log(`Found ${keywordFilteredResults.length} properties with keywords: ${filters.includeKeywords.join(', ')}`);
+      } else {
+        console.log(`No properties found with keywords: ${filters.includeKeywords.join(', ')}`);
+      }
+    }
+    
+    // Filter out properties with excluded keywords
+    if (filters.excludeKeywords && filters.excludeKeywords.length > 0) {
+      filteredResults = filteredResults.filter(property => {
+        const addressLower = (property.address || '').toLowerCase();
+        const descriptionLower = (property.description || '').toLowerCase();
+        
+        // Check if any excluded keyword is found in the address or description
+        return !filters.excludeKeywords.some(keyword => 
+          addressLower.includes(keyword.toLowerCase()) || 
+          descriptionLower.includes(keyword.toLowerCase())
+        );
+      });
+      
+      console.log(`After excluding keywords: ${filteredResults.length} properties remain`);
+    }
+    
+    return filteredResults;
+  } catch (error) {
+    // If the first authentication method fails, try an alternative
+    if (error.response && error.response.status === 401) {
+      console.log("First authentication method failed, trying alternative...");
+      
+      try {
+        // Similar structure as above, but with different authentication
+        const allResults = [];
+        
+        // Valid property types according to the API
+        const validPropertyTypes = filters.propertyTypes.filter(type => 
+          ['flat', 'terraced', 'semi-detached', 'detached'].includes(type)
+        );
+        
+        if (validPropertyTypes.length === 0) {
+          validPropertyTypes.push('terraced', 'semi-detached', 'detached'); // Default if none specified
+        }
+        
+        console.log("Searching for property types (alt auth):", validPropertyTypes);
+        console.log("Looking for keywords (alt auth):", filters.includeKeywords ? filters.includeKeywords.join(', ') : 'None');
+        
+        // Make a separate request for each property type
+        for (const propertyType of validPropertyTypes) {
+          try {
+            const response = await axios.get('https://app.patma.co.uk/api/prospector/v1/list-property/', {
+              headers: {
+                'Authorization': `Basic ${btoa(`${apiKey}:`)}`,
+                'Content-Type': 'application/json'
+              },
+              params: {
+                lat: latitude,
+                long: longitude,
+                radius: radius,
+                require_sold_price: true,
+                include_sold_history: true,
+                page: 1,
+                page_size: 100,
+                min_bedrooms: filters.minBedrooms,
+                min_bathrooms: filters.minBathrooms,
+                min_price: filters.minPrice,
+                max_price: filters.maxPrice,
+                property_type: propertyType // Single property type per request
+              }
+            });
+            
+            if (response.data && response.data.status === 'success') {
+              const results = response.data.data.available_results || [];
+              
+              // Add fallback descriptions for properties that don't have them
+              const resultsWithDescriptions = results.map(property => {
+                if (!property.description || property.description.trim() === '') {
+                  // Generate a basic description based on property details
+                  const bedroomText = property.bedrooms ? `${property.bedrooms} bedroom` : '';
+                  const propertyTypeText = property.property_type || propertyType;
+                  const locationText = property.address ? 
+                    `located in ${property.address.split(',').pop()?.trim() || 'a popular area'}` : 
+                    '';
+                  
+                  // Use proper assignment that preserves the property type
+                  return {
+                    ...property,
+                    description: `A ${bedroomText} ${propertyTypeText} ${locationText}. This property is available for purchase and could be an excellent investment opportunity. Contact the agent for more details and to arrange a viewing.`
+                  };
+                }
+                return property;
+              });
+              
+              allResults.push(...resultsWithDescriptions);
+            }
+          } catch (error) {
+            console.error(`Error fetching ${propertyType} properties with alternative auth:`, error);
+          }
+        }
+        
+        // Apply additional filters to ensure property requirements are met
+        let filteredResults = allResults;
+        
+        // Filter by price to ensure API filters are working correctly
+        filteredResults = filteredResults.filter(property => {
+          // Get the most relevant price from the property
+          const propertyPrice = property.price || property.asking_price || property.last_sold_price || 0;
+          
+          // Only keep properties within our price range
+          return propertyPrice >= filters.minPrice && propertyPrice <= filters.maxPrice;
+        });
+        
+        console.log(`After price filtering (£${filters.minPrice/1000}K-£${filters.maxPrice/1000}K): ${filteredResults.length} properties remain`);
+        
+        // Filter to INCLUDE properties with specific keywords
+        if (filters.includeKeywords && filters.includeKeywords.length > 0) {
+          const keywordFilteredResults = filteredResults.filter(property => {
+            const addressLower = (property.address || '').toLowerCase();
+            const descriptionLower = (property.description || '').toLowerCase();
+            
+            // Include property if ANY of the keywords are found in the address or description
+            return filters.includeKeywords.some(keyword => 
+              addressLower.includes(keyword.toLowerCase()) || 
+              descriptionLower.includes(keyword.toLowerCase())
+            );
+          });
+          
+          // If we found properties with the desired keywords, use only those
+          if (keywordFilteredResults.length > 0) {
+            filteredResults = keywordFilteredResults;
+            console.log(`Found ${keywordFilteredResults.length} properties with keywords: ${filters.includeKeywords.join(', ')}`);
+          } else {
+            console.log(`No properties found with keywords: ${filters.includeKeywords.join(', ')}`);
+          }
+        }
+        
+        // Filter out properties with excluded keywords
+        if (filters.excludeKeywords && filters.excludeKeywords.length > 0) {
+          filteredResults = filteredResults.filter(property => {
+            const addressLower = (property.address || '').toLowerCase();
+            const descriptionLower = (property.description || '').toLowerCase();
+            
+            return !filters.excludeKeywords.some(keyword => 
+              addressLower.includes(keyword.toLowerCase()) || 
+              descriptionLower.includes(keyword.toLowerCase())
+            );
+          });
+          
+          console.log(`After excluding keywords: ${filteredResults.length} properties remain`);
+        }
+        
+        return filteredResults;
+      } catch (altError) {
+        console.error('Error with alternative authentication:', altError);
+        
+        // If both methods fail, try a third method
+        try {
+          console.log("Trying third authentication method...");
+          // Similar structure as above, but with Bearer token
+          const allResults = [];
+          
+          // Valid property types according to the API
+          const validPropertyTypes = filters.propertyTypes.filter(type => 
+            ['flat', 'terraced', 'semi-detached', 'detached'].includes(type)
+          );
+          
+          if (validPropertyTypes.length === 0) {
+            validPropertyTypes.push('terraced', 'semi-detached', 'detached'); // Default if none specified
+          }
+          
+          console.log("Searching for property types (third auth):", validPropertyTypes);
+          console.log("Looking for keywords (third auth):", filters.includeKeywords ? filters.includeKeywords.join(', ') : 'None');
+          
+          // Make a separate request for each property type
+          for (const propertyType of validPropertyTypes) {
+            try {
+              const response = await axios.get('https://app.patma.co.uk/api/prospector/v1/list-property/', {
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`,
+                },
+                params: {
+                  lat: latitude,
+                  long: longitude,
+                  radius: radius,
+                  require_sold_price: true,
+                  include_sold_history: true,
+                  page: 1,
+                  page_size: 100,
+                  min_bedrooms: filters.minBedrooms,
+                  min_bathrooms: filters.minBathrooms,
+                  min_price: filters.minPrice,
+                  max_price: filters.maxPrice,
+                  property_type: propertyType // Single property type per request
+                }
+              });
+              
+              if (response.data && response.data.status === 'success') {
+                const results = response.data.data.available_results || [];
+                
+                // Add fallback descriptions for properties that don't have them
+                const resultsWithDescriptions = results.map(property => {
+                  if (!property.description || property.description.trim() === '') {
+                    // Generate a basic description based on property details
+                    const bedroomText = property.bedrooms ? `${property.bedrooms} bedroom` : '';
+                    const propertyTypeText = property.property_type || propertyType;
+                    const locationText = property.address ? 
+                      `located in ${property.address.split(',').pop()?.trim() || 'a popular area'}` : 
+                      '';
+                    
+                    // Use proper assignment that preserves the property type
+                    return {
+                      ...property,
+                      description: `A ${bedroomText} ${propertyTypeText} ${locationText}. This property is available for purchase and could be an excellent investment opportunity. Contact the agent for more details and to arrange a viewing.`
+                    };
+                  }
+                  return property;
+                });
+                
+                allResults.push(...resultsWithDescriptions);
+              }
+            } catch (error) {
+              console.error(`Error fetching ${propertyType} properties with third auth:`, error);
+            }
+          }
+          
+          // Apply additional filters to ensure property requirements are met
+          let filteredResults = allResults;
+          
+          // Filter by price to ensure API filters are working correctly
+          filteredResults = filteredResults.filter(property => {
+            // Get the most relevant price from the property
+            const propertyPrice = property.price || property.asking_price || property.last_sold_price || 0;
+            
+            // Only keep properties within our price range
+            return propertyPrice >= filters.minPrice && propertyPrice <= filters.maxPrice;
+          });
+          
+          console.log(`After price filtering (£${filters.minPrice/1000}K-£${filters.maxPrice/1000}K): ${filteredResults.length} properties remain`);
+          
+          // Filter to INCLUDE properties with specific keywords
+          if (filters.includeKeywords && filters.includeKeywords.length > 0) {
+            const keywordFilteredResults = filteredResults.filter(property => {
+              const addressLower = (property.address || '').toLowerCase();
+              const descriptionLower = (property.description || '').toLowerCase();
+              
+              // Include property if ANY of the keywords are found in the address or description
+              return filters.includeKeywords.some(keyword => 
+                addressLower.includes(keyword.toLowerCase()) || 
+                descriptionLower.includes(keyword.toLowerCase())
+              );
+            });
+            
+            // If we found properties with the desired keywords, use only those
+            if (keywordFilteredResults.length > 0) {
+              filteredResults = keywordFilteredResults;
+              console.log(`Found ${keywordFilteredResults.length} properties with keywords: ${filters.includeKeywords.join(', ')}`);
+            } else {
+              console.log(`No properties found with keywords: ${filters.includeKeywords.join(', ')}`);
+            }
+          }
+          
+          // Filter out properties with excluded keywords
+          if (filters.excludeKeywords && filters.excludeKeywords.length > 0) {
+            filteredResults = filteredResults.filter(property => {
+              const addressLower = (property.address || '').toLowerCase();
+              const descriptionLower = (property.description || '').toLowerCase();
+              
+              return !filters.excludeKeywords.some(keyword => 
+                addressLower.includes(keyword.toLowerCase()) || 
+                descriptionLower.includes(keyword.toLowerCase())
+              );
+            });
+            
+            console.log(`After excluding keywords: ${filteredResults.length} properties remain`);
+          }
+          
+          return filteredResults;
+        } catch (thirdError) {
+          console.error('All authentication methods failed:', thirdError);
+          return [];
+        }
+      }
+    }
+    
+    console.error('Error fetching property data:', error);
+    
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+      console.error('Response headers:', error.response.headers);
+      
+      // Check for specific error messages in the API response
+      if (error.response.data && error.response.data.errors) {
+        console.error('API errors:', error.response.data.errors);
+        
+        // Display specific error message for property_type
+        if (error.response.data.errors.some((err: string) => err.includes('property_type'))) {
+          console.error('Please note: The PaTMa API only accepts these property types: flat, terraced, semi-detached, detached');
+        }
+      }
+    } else {
+      console.error('No response received - likely a CORS issue');
+    }
+    
+    // Return empty array if all attempts failed
+    return [];
+  }
+};
+
+// Call the function to test the API
+
+// fetchPatmaPropertyData(); 

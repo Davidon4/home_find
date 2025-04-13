@@ -40,14 +40,9 @@ export const PropertyCard = ({ property }: PropertyCardProps) => {
         <div className="absolute bottom-4 left-4 text-white">
           <div className="text-2xl font-semibold">{formatCurrency(property.price)}</div>
           <div className="text-sm">
-            {property.bedrooms ?? '?'} bed • {property.bathrooms ?? '?'} bath • {property.square_feet?.toLocaleString() ?? '?'} sqft
+            {property.bedrooms ?? '?'} bed
           </div>
         </div>
-        {property.investment_score && (
-          <div className="absolute top-4 right-4 bg-primary/90 text-white px-3 py-1 rounded-full text-sm font-medium">
-            Score: {property.investment_score}/100
-          </div>
-        )}
       </div>
 
       <CardHeader>

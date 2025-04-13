@@ -19,8 +19,11 @@ interface PropertyListing {
   address: string;
   price: number;
   bedrooms: number | null;
+  bedrooms_verified?: boolean;
   bathrooms: number | null;
+  bathrooms_verified?: boolean;
   square_feet: number | null;
+  square_feet_verified?: boolean;
   image_url: string | null;
   roi_estimate: number | null;
   rental_estimate: number | null;
@@ -142,10 +145,11 @@ export function PropertyProposalDialog({
       const propertyDetails = {
         address: property.address || 'Address not available',
         price: formatCurrency(property.price),
-        bedrooms: property.bedrooms || 'Not specified',
-        bathrooms: property.bathrooms || 'Not specified',
+        bedrooms: property.bedrooms,
+        bathrooms: property.bathrooms,
         squareFeet: property.square_feet ? property.square_feet.toLocaleString() : 'Not specified',
         propertyType: property.property_type || 'Not specified',
+        description: property.description || 'No description available',
         rentalEstimate: formatCurrency(analysis.rental_estimate),
         roiEstimate: typeof analysis.roi_estimate === 'number' ? `${analysis.roi_estimate.toFixed(2)}%` : 'Not available',
         investmentScore: typeof analysis.investment_score === 'number' ? `${analysis.investment_score}/100` : 'Not available',
@@ -163,6 +167,9 @@ Property Details:
 - Bedrooms: ${propertyDetails.bedrooms}
 - Bathrooms: ${propertyDetails.bathrooms}
 - Square Feet: ${propertyDetails.squareFeet}
+
+Property Description:
+${propertyDetails.description}
 
 Investment Analysis:
 - AI Investment Score: ${propertyDetails.investmentScore}
@@ -290,22 +297,44 @@ ${propertyDetails.recommendation}
                 </div>
                 <div>
                   <span className="block text-gray-500">Bedrooms</span>
-                  <span className="font-medium">{property.bedrooms || 'Unknown'}</span>
+                  <span className="font-medium">
+                    {property.bedrooms}
+                    {property.bedrooms_verified === false && (
+                      <span className="text-xs text-gray-400 ml-1">(est.)</span>
+                    )}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-gray-500">Bathrooms</span>
+                  <span className="font-medium">
+                    {property.bathrooms || 'Unknown'}
+                    {property.bathrooms && property.bathrooms_verified === false && (
+                      <span className="text-xs text-gray-400 ml-1">(est.)</span>
+                    )}
+                  </span>
                 </div>
                 {property.square_feet && (
                   <div>
                     <span className="block text-gray-500">Square Feet</span>
-                    <span className="font-medium">{property.square_feet.toLocaleString()}</span>
+                    <span className="font-medium">
+                      {property.square_feet.toLocaleString()}
+                      {property.square_feet_verified === false && (
+                        <span className="text-xs text-gray-400 ml-1">(est.)</span>
+                      )}
+                    </span>
                   </div>
                 )}
               </div>
               
-              {property.description && (
-                <div>
-                  <h4 className="text-md font-medium mb-1">Description</h4>
-                  <p className="text-sm text-gray-600">{property.description}</p>
-                </div>
-              )}
+              {/* Property Description - Highlighted in a dedicated section */}
+              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                <h4 className="text-md font-medium mb-2">Property Description</h4>
+                {property.description ? (
+                  <p className="text-sm text-gray-600 dark:text-gray-300">{property.description}</p>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">No description available for this property.</p>
+                )}
+              </div>
               
               {property.agent && (
                 <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">

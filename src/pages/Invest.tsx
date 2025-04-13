@@ -2,25 +2,27 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
-import { DollarSign, Home, TrendingUp, Clock, LineChart, Search, XCircle, Filter, MapPin } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Home, MapPin, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { PropertySearch } from "@/components/PropertySearch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MappedProperty } from "@/types/property-types";
-import { searchProperties, Property, PropertySearchFilters } from "@/utils/backend-api";
-import { UKProperty, searchDatabaseProperties } from "@/utils/propertyApi";
-import { Session } from "@supabase/supabase-js";
+import { Session } from "@supabase/supabase-js"
 import { PropertyProposalDialog } from "@/components/PropertyProposalDialog";
+import { fetchPatmaPropertyData } from "@/utils/rightmove-api";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import axios from 'axios';
 
 interface PropertyListing {
   id: string;
   address: string;
   price: number;
   bedrooms: number | null;
+  bedrooms_verified?: boolean;
   bathrooms: number | null;
+  bathrooms_verified?: boolean;
   square_feet: number | null;
+  square_feet_verified?: boolean;
   image_url: string | null;
   roi_estimate: number | null;
   rental_estimate: number | null;
@@ -59,11 +61,130 @@ interface PropertyListing {
   };
 }
 
+interface PatmaProperty {
+  id?: string;
+  address?: string;
+  location?: string;
+  price?: number;
+  asking_price?: number;
+  bedrooms?: number;
+  bedrooms_estimated?: boolean;
+  bathrooms?: number;
+  square_feet?: number;
+  area?: number;
+  floor_area_sqft?: number;
+  floor_area_sqm?: number;
+  image_url?: string;
+  main_image?: string;
+  roi?: number;
+  rental_value?: number;
+  property_type?: string;
+  features?: string[];
+  investment_score?: number;
+  created_at?: string;
+  updated_at?: string;
+  url?: string;
+  listing_type?: string;
+  description?: string;
+  agent?: { name: string; phone: string };
+  ai_analysis?: string;
+  recommendation?: string;
+  market_trend?: string;
+  demand?: string;
+  bidding_recommendation?: number;
+  last_sold_price?: number;
+  last_sold_date?: string;
+  last_sold_as_new?: boolean;
+  current_indexation_value?: number;
+  price_history?: Record<string, unknown>;
+  sold_history?: Array<{
+    amount: number;
+    date: string;
+    new: boolean;
+  }>;
+  latitude?: number;
+  longitude?: number;
+  lat?: number;
+  lng?: number;
+  market_demand?: string;
+  area_growth?: string;
+  crime_rate?: string;
+  nearby_schools?: number;
+  energy_rating?: string;
+  council_tax_band?: string;
+  appreciation_rate?: number;
+  market_activity?: string;
+  tenure?: string;
+  uprn?: string;
+  built_form?: string;
+  habitable_rooms?: number;
+}
+
 const placeholderImages = [
   "https://images.unsplash.com/photo-1433832597046-4f10e10ac764",
   "https://images.unsplash.com/photo-1501854140801-50d01698950b",
   "https://images.unsplash.com/photo-1482938289607-e9573fc25ebb",
 ];
+
+// Improved property images based on property type
+const propertyTypeImages = {
+  flat: [
+    "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688",
+    "https://images.unsplash.com/photo-1551361415-69c87624334f",
+    "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2"
+  ],
+  house: [
+    "https://images.unsplash.com/photo-1518780664697-55e3ad937233",
+    "https://images.unsplash.com/photo-1568605114967-8130f3a36994",
+    "https://images.unsplash.com/photo-1570129477492-45c003edd2be"
+  ],
+  detached: [
+    "https://images.unsplash.com/photo-1564013799919-ab600027ffc6",
+    "https://images.unsplash.com/photo-1512917774080-9991f1c4c750",
+    "https://images.unsplash.com/photo-1549517045-bc93de075e53"
+  ],
+  terrace: [
+    "https://images.unsplash.com/photo-1625602812206-5ec545ca1231",
+    "https://images.unsplash.com/photo-1602343168117-bb8ffe3e2e9f",
+    "https://images.unsplash.com/photo-1605276374104-dee2a0ed3cd6"
+  ],
+  commercial: [
+    "https://images.unsplash.com/photo-1497366811353-6870744d04b2",
+    "https://images.unsplash.com/photo-1577979536252-88d631d6d36d",
+    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab"
+  ]
+};
+
+// Function to get a type-specific image
+const getPropertyImage = (propertyType: string, address: string): string => {
+  // Determine property category based on address and property type
+  const type = propertyType.toLowerCase();
+  let category = 'house';
+  
+  if (type.includes('flat') || type.includes('apartment') || 
+      address?.toLowerCase().includes('flat') || address?.toLowerCase().includes('apartment')) {
+    category = 'flat';
+  } else if (type.includes('detached') || address?.toLowerCase().includes('detached')) {
+    category = 'detached';
+  } else if (type.includes('terrace') || address?.toLowerCase().includes('terrace') || 
+             address?.toLowerCase().includes('row')) {
+    category = 'terrace';
+  } else if (type.includes('commercial') || type.includes('office') || 
+             address?.toLowerCase().includes('commercial') || address?.toLowerCase().includes('office')) {
+    category = 'commercial';
+  }
+  
+  // Get images for that category, or fallback to house
+  const images = propertyTypeImages[category as keyof typeof propertyTypeImages] || propertyTypeImages.house;
+  
+  // Create a stable random selection based on the address (if available)
+  const hash = address ? 
+    address.split('').reduce((a, b) => (a * 31 + b.charCodeAt(0)) & 0xFFFFFFFF, 0) : 
+    Math.floor(Math.random() * 1000);
+  
+  // Select an image based on the hash
+  return images[hash % images.length];
+};
 
 const getRandomPlaceholder = () => {
   return placeholderImages[Math.floor(Math.random() * placeholderImages.length)];
@@ -97,9 +218,16 @@ const formatROI = (value: number | null) => {
 };
 
 const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClick: () => void }) => {
+  // Check if the property has keywords like "cash only" or "modernization" to highlight
+  const highlightKeywords = ["cash only", "modernization", "modernisation", "modernization needed"];
+  const hasHighlightedKeywords = property.description && 
+    highlightKeywords.some(keyword => 
+      property.description?.toLowerCase().includes(keyword.toLowerCase())
+    );
+  
   return (
     <Card 
-      className="overflow-hidden cursor-pointer transition-all hover:shadow-lg" 
+      className={`overflow-hidden cursor-pointer transition-all hover:shadow-lg ${hasHighlightedKeywords ? 'ring-2 ring-yellow-400 dark:ring-yellow-600' : ''}`}
       onClick={onClick}
     >
       <div className="aspect-video relative overflow-hidden">
@@ -118,45 +246,89 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
             <Home className="h-12 w-12 text-muted-foreground" />
           </div>
         )}
+        
+        {/* Investment opportunity badge for highlighted properties */}
+        {hasHighlightedKeywords && (
+          <div className="absolute top-2 left-2 bg-yellow-400 dark:bg-yellow-600 text-black dark:text-white text-xs font-bold px-2 py-1 rounded-full">
+            Investment Opportunity
+          </div>
+        )}
+        
         <div className="absolute top-2 right-2 bg-background/90 px-2 py-1 rounded text-sm font-medium">
           {property.property_type || 'Property'}
+        </div>
+        
+        {/* Price badge at the bottom of the image */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+          <div className="flex justify-between items-center">
+            <span className="font-bold text-lg text-white">{formatCurrency(property.price)}</span>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-white bg-green-600/90 px-2 py-0.5 rounded">
+                {formatROI(property.roi_estimate)}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
       
       <CardContent className="p-4">
-        <div className="mb-2 flex items-start justify-between">
+        <div className="mb-2">
           <h3 className="font-semibold text-lg line-clamp-1">{property.address}</h3>
-          <span className="font-bold text-lg">{formatCurrency(property.price)}</span>
-        </div>
-        
-        <div className="flex items-center text-sm text-muted-foreground mb-3">
-          <MapPin className="h-4 w-4 mr-1" />
-          <span className="line-clamp-1">{property.address}</span>
+          <div className="flex items-center text-sm text-muted-foreground">
+            <MapPin className="h-4 w-4 mr-1 flex-shrink-0" />
+            <span className="line-clamp-1">{property.address}</span>
+          </div>
         </div>
         
         <div className="grid grid-cols-3 gap-2 mb-3">
           <div className="flex flex-col items-center p-2 bg-muted rounded">
             <span className="text-xs text-muted-foreground">Beds</span>
-            <span className="font-medium">{property.bedrooms || 'N/A'}</span>
+            <span className="font-medium">
+              {property.bedrooms}
+              {property.bedrooms_verified === false && (
+                <span className="text-xs text-muted-foreground ml-1">(est.)</span>
+              )}
+            </span>
           </div>
           <div className="flex flex-col items-center p-2 bg-muted rounded">
             <span className="text-xs text-muted-foreground">Baths</span>
-            <span className="font-medium">{property.bathrooms || 'N/A'}</span>
+            <span className="font-medium">
+              {property.bathrooms || 'N/A'}
+              {property.bathrooms && property.bathrooms_verified === false && (
+                <span className="text-xs text-muted-foreground ml-1">(est.)</span>
+              )}
+            </span>
           </div>
           <div className="flex flex-col items-center p-2 bg-muted rounded">
             <span className="text-xs text-muted-foreground">Sq Ft</span>
-            <span className="font-medium">{property.square_feet ? property.square_feet.toLocaleString() : 'N/A'}</span>
+            <span className="font-medium">
+              {property.square_feet ? property.square_feet.toLocaleString() : 'N/A'}
+              {property.square_feet && property.square_feet_verified === false && (
+                <span className="text-xs text-muted-foreground ml-1">(est.)</span>
+              )}
+            </span>
           </div>
         </div>
         
+        {property.description && (
+          <div className={`mt-2 mb-3 p-2 rounded ${hasHighlightedKeywords ? 'bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800' : 'bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-700'}`}>
+            <h4 className="text-sm font-medium mb-1 flex items-center">
+              Description
+            </h4>
+            <p className="text-xs text-muted-foreground line-clamp-3">{property.description}</p>
+          </div>
+        )}
+        
         <div className="grid grid-cols-2 gap-2">
-          <div className="flex flex-col p-2 bg-green-50 dark:bg-green-950 rounded">
+          <div className="flex flex-col p-2 bg-green-50 dark:bg-green-950 rounded border border-green-100 dark:border-green-800">
             <span className="text-xs text-muted-foreground">Est. Rental</span>
             <span className="font-medium">{property.rental_estimate ? formatCurrency(property.rental_estimate) + '/mo' : 'N/A'}</span>
           </div>
-          <div className="flex flex-col p-2 bg-blue-50 dark:bg-blue-950 rounded">
-            <span className="text-xs text-muted-foreground">Est. ROI</span>
-            <span className="font-medium">{property.roi_estimate ? formatROI(property.roi_estimate) : 'N/A'}</span>
+          <div className="flex flex-col p-2 bg-blue-50 dark:bg-blue-950 rounded border border-blue-100 dark:border-blue-800">
+            <span className="text-xs text-muted-foreground">Last Sold</span>
+            <span className="font-medium">
+              {property.last_sold_price ? formatCurrency(property.last_sold_price) : 'Unknown'}
+            </span>
           </div>
         </div>
       </CardContent>
@@ -166,87 +338,66 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
 
 const Invest = () => {
   const [properties, setProperties] = useState<PropertyListing[]>([]);
+  const [patmaProperties, setPatmaProperties] = useState<PatmaProperty[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchParams, setSearchParams] = useState<Record<string, string>>({});
-  const [searchPerformed, setSearchPerformed] = useState(false);
-  const [activeTab, setActiveTab] = useState("search");
   const [session, setSession] = useState<Session | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<PropertyListing | null>(null);
   const [isProposalDialogOpen, setIsProposalDialogOpen] = useState(false);
+  const [locationSearch, setLocationSearch] = useState({
+    location: "",  // Changed from postcode to location
+    latitude: 51.507351,  // Default to London
+    longitude: -0.127758,
+    radius: 5
+  });
   const navigate = useNavigate();
 
-  const API_BASE_URL = "";
-
-  const mapToPropertyListing = (property: Property): PropertyListing => {
-    // Debug property data coming in
-    console.log("Mapping property:", property.id);
-    console.log("Property type:", property.property_type);
-    
-    const rentalEstimate = property.rental_estimate || 
-      calculateRentalEstimate(property.price, property.bedrooms, property.property_type || '');
-    const roiEstimate = property.roi_estimate || 
-      calculateROI(property.price, rentalEstimate);
-    
-    // Ensure property_type is never undefined
-    const propertyType = property.property_type || 'Property';
-    
-    return {
-      id: property.id,
-      address: property.address,
-      price: property.price,
-      bedrooms: property.bedrooms,
-      bathrooms: property.bathrooms,
-      square_feet: property.square_feet,
-      image_url: property.image_url,
-      roi_estimate: roiEstimate,
-      rental_estimate: rentalEstimate,
-      investment_highlights: {
-        location: property.address,
-        type: propertyType,
-        features: Array.isArray(property.property_details?.property_features) ? property.property_details.property_features.slice(0, 3).join(", ") : ""
-      },
-      investment_score: calculateInvestmentScore(property),
-      created_at: property.created_at,
-      updated_at: property.updated_at,
-      source: "rightmove",
-      listing_url: property.rightmove_url || "#",
-      description: property.description,
-      property_type: propertyType,
-      listing_type: property.listing_type,
-      agent: property.agent,
-      ai_analysis: {
-        summary: "Analysis not available for this property",
-        recommendation: "Consider researching the area further"
-      },
-      market_analysis: {
-        trend: "Market data not available",
-        demand: "Unknown"
-      },
-      bidding_recommendation: property.price * 0.95,
-      last_sold_price: null,
-      price_history: null,
-      latitude: property.location.latitude,
-      longitude: property.location.longitude,
-      property_details: {
-        market_demand: property.property_details?.market_demand || "Medium",
-        area_growth: property.property_details?.area_growth || "3.5%",
-        crime_rate: property.property_details?.crime_rate || "Average",
-        nearby_schools: property.property_details?.nearby_schools || 0,
-        energy_rating: property.property_details?.energy_rating || "Unknown",
-        council_tax_band: property.property_details?.council_tax_band || "Unknown",
-        property_features: property.property_details?.property_features || []
-      },
-      market_trends: property.market_trends ? 
-        { 
-          appreciation_rate: property.market_trends.appreciation_rate || 3.2,
-          market_activity: property.market_trends.market_activity || "Moderate" 
-        } : 
-        {
-          appreciation_rate: 3.2,
-          market_activity: "Moderate"
-        }
-    };
+  // Check Supabase session
+  const checkSession = async () => {
+    const { data } = await supabase.auth.getSession();
+    setSession(data.session);
   };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        // Fetch initial data using default coordinates (London)
+        const patmaResults = await fetchPatmaPropertyData(
+          locationSearch.latitude, 
+          locationSearch.longitude, 
+          locationSearch.radius
+        );
+        console.log("Fetched initial PaTMa Property Data:", patmaResults);
+        
+        if (patmaResults && Array.isArray(patmaResults)) {
+          setPatmaProperties(patmaResults);
+          
+          // Convert PaTMa properties to the PropertyListing format
+          const mappedProperties = patmaResults.map((patmaProperty) => {
+            return mapPatmaToPropertyListing(patmaProperty);
+          });
+          
+          // Set properties state with ONLY the mapped PaTMa properties
+          setProperties(mappedProperties);
+          
+          if (mappedProperties.length > 0) {
+            toast.success(`Found ${mappedProperties.length} properties in London (default location)`);
+          } else {
+            toast.info("No properties found in the default area. Try searching for a specific location.");
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching PaTMa data:", error);
+        toast.error("Failed to fetch property data from PaTMa");
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+    // Check user session for saved properties
+    checkSession();
+  }, []);
 
   const calculateRentalEstimate = (price: number, bedrooms: number | null, propertyType: string): number => {
     if (!price) return 0;
@@ -274,293 +425,260 @@ const Invest = () => {
     return (annualRental / price) * 100; // Return as percentage
   };
 
-  const calculateInvestmentScore = (property: Property): number => {
-    let score = 70;
-    
-    if (property.bedrooms && property.bedrooms >= 3) score += 5;
-    if (property.bathrooms && property.bathrooms >= 2) score += 5;
-    if (property.square_feet && property.square_feet > 1000) score += 5;
-    if (Array.isArray(property.property_details?.property_features) && property.property_details.property_features.length > 5) score += 5;
-    if (property.price < 200000) score += 10;
-    
-    return Math.min(100, Math.max(0, score));
-  };
-
-  const fetchProperties = async () => {
-    setLoading(true);
-    try {
-      const properties = await searchProperties("investment properties");
-      const formattedProperties = properties.map(mapToPropertyListing);
-      setProperties(formattedProperties);
-    } catch (error) {
-      console.error("Error fetching properties:", error);
-      toast.error("Failed to load properties. Please try again later.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchInitialProperties = async () => {
-    setLoading(true);
-    try {
-      const defaultSearch = "investment property"; // Using a more generic search term
-      console.log("Fetching initial properties from database...");
-      
-      const properties = await searchProperties(defaultSearch);
-      
-      // Log raw properties from Supabase
-      console.log("Raw properties from Supabase:", properties.map(p => ({
-        id: p.id,
-        property_type: p.property_type,
-        address: p.address
-      })));
-      
-      if (properties.length > 0) {
-        const mappedProperties = properties.map(mapToPropertyListing);
-        
-        // Log mapped properties to see if property_type is preserved
-        console.log("Mapped properties:", mappedProperties.map(p => ({
-          id: p.id,
-          property_type: p.property_type,
-          address: p.address
-        })));
-        
-        setProperties(mappedProperties);
-        console.log(`Found ${mappedProperties.length} properties`);
-      } else {
-        console.log("No initial properties found in database");
-        setProperties([]);
-      }
-    } catch (error) {
-      console.error("Error fetching initial properties:", error);
-      setProperties([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const searchForProperties = async (searchTerm: string) => {
-    if (!searchTerm.trim()) {
-      toast.error("Please enter a search term");
-      return;
-    }
-
-    setLoading(true);
-    setSearchParams({ searchTerm });
-    console.log("Searching properties for:", searchTerm);
-
-    try {
-      const filters: PropertySearchFilters = {};
-      
-      const properties = await searchProperties(searchTerm, filters);
-      
-      if (properties.length === 0) {
-        toast.info("No properties found. Try a different search term.");
-        setProperties([]);
-      } else {
-        const mappedProperties = properties.map(mapToPropertyListing);
-        setProperties(mappedProperties);
-        toast.success(`Found ${mappedProperties.length} properties`);
-      }
-    } catch (error) {
-      console.error("Error searching properties:", error);
-      toast.error("Error searching properties. Please try again.");
-      setProperties([]);
-    } finally {
-      setLoading(false);
-      setSearchPerformed(true);
-      setActiveTab("results");
-    }
-  };
-
-  const handleSearch = (searchCriteria: Record<string, string>) => {
-    setLoading(true);
-    setSearchParams(searchCriteria);
-    
-    let searchQuery = "";
-    
-    if (searchCriteria.location) {
-      searchQuery += searchCriteria.location;
-    }
-    
-    if (searchCriteria.propertyType) {
-      searchQuery += " " + searchCriteria.propertyType;
-    }
-    
-    if (searchCriteria.bedrooms) {
-      searchQuery += " " + searchCriteria.bedrooms + " bedroom";
-    }
-    
-    searchForProperties(searchQuery.trim());
-  };
-
-  const handlePropertiesFound = async (foundProperties: MappedProperty[]) => {
-    // Map the found properties to our PropertyListing format
-    console.log("Found Properties:", foundProperties);
-    
-    try {
-      setLoading(true);
-      
-      const propertyPromises = foundProperties.map(async (prop: MappedProperty) => {
-        const rentalEstimate = prop.rental_estimate || 
-          calculateRentalEstimate(prop.price, prop.bedrooms, prop.property_type || '');
-
-          console.log("PropertyType=>", prop.property_type)
-        
-        const roiEstimate = prop.roi_estimate || 
-          calculateROI(prop.price, rentalEstimate);
-        
-        return {
-          id: prop.id,
-          address: prop.address,
-          price: prop.price,
-          bedrooms: prop.bedrooms,
-          bathrooms: prop.bathrooms,
-          square_feet: prop.square_feet,
-          image_url: prop.image_url,
-          roi_estimate: roiEstimate,
-          rental_estimate: rentalEstimate,
-          investment_highlights: {
-            location: prop.address,
-            type: prop.property_type || '',
-            features: Array.isArray(prop.features) ? prop.features.slice(0, 3).join(", ") : ""
-          },
-          investment_score: 70,
-          created_at: prop.dateAdded || new Date().toISOString(),
-          updated_at: prop.listedSince || new Date().toISOString(),
-          source: "rightmove",
-          listing_url: prop.url || "#",
-          description: prop.description,
-          property_type: prop.property_type,
-          listing_type: "for-sale",
-          agent: prop.agent,
-          ai_analysis: {
-            summary: "Analysis not available for this property",
-            recommendation: "Consider researching the area further"
-          },
-          market_analysis: {
-            trend: "Market data not available",
-            demand: "Unknown"
-          },
-          bidding_recommendation: prop.price * 0.95,
-          last_sold_price: null,
-          price_history: null,
-          latitude: prop.location?.latitude,
-          longitude: prop.location?.longitude,
-          property_details: {
-            market_demand: "Medium",
-            area_growth: "3.5%",
-            crime_rate: "Average",
-            nearby_schools: 0,
-            energy_rating: "Unknown",
-            council_tax_band: "Unknown",
-            property_features: []
-          },
-          market_trends: {
-            appreciation_rate: 3.2,
-            market_activity: "Moderate"
-          }
-        };
-      });
-      
-      // Wait for all the property mappings to complete
-      const resolvedProperties = await Promise.all(propertyPromises);
-      
-      setProperties(resolvedProperties);
-      setSearchPerformed(true);
-      setActiveTab("results");
-    } catch (error) {
-      console.error("Error processing properties:", error);
-      toast.error("An error occurred while processing properties");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleClearResults = () => {
-    setProperties([]);
-    setSearchPerformed(false);
-    setActiveTab("search");
-  };
-
   const handlePropertyClick = (property: PropertyListing) => {
     // Simply set the selected property and open dialog
     setSelectedProperty(property);
     setIsProposalDialogOpen(true);
   };
 
-  useEffect(() => {
-    // Fetch properties automatically when component mounts
-    fetchInitialProperties();
-    setSearchPerformed(true); // Mark as searched so results display properly
+  const handleLocationSearch = async () => {
+    if (!locationSearch.location.trim()) {
+      toast.error("Please enter a location name or postcode");
+      return;
+    }
     
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      setSession(data.session);
-    };
-    
-    checkSession();
-  }, []);
+    setLoading(true);
+    try {
+      let geocodeUrl;
+      const searchTerm = locationSearch.location.trim();
+      
+      // Check if input is likely a postcode (contains numbers)
+      if (/\d/.test(searchTerm)) {
+        // Use postcodes.io for UK postcodes
+        geocodeUrl = `https://api.postcodes.io/postcodes/${encodeURIComponent(searchTerm)}`;
+      } else {
+        // Use OpenStreetMap Nominatim API for location names
+        geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchTerm)}&format=json&country=UK&limit=1`;
+      }
+      
+      const response = await fetch(geocodeUrl);
+      const data = await response.json();
+      
+      let latitude, longitude;
+      
+      if (/\d/.test(searchTerm) && data.status === 200 && data.result) {
+        // Postcode.io response format
+        latitude = data.result.latitude;
+        longitude = data.result.longitude;
+      } else if (!(/\d/.test(searchTerm)) && data.length > 0) {
+        // Nominatim response format
+        latitude = parseFloat(data[0].lat);
+        longitude = parseFloat(data[0].lon);
+      } else {
+        throw new Error("Location not found");
+      }
+      
+      if (latitude && longitude) {
+        // Update state with new coordinates
+        setLocationSearch(prev => ({
+          ...prev,
+          latitude,
+          longitude
+        }));
+        
+        // Fetch properties with new coordinates
+        const patmaResults = await fetchPatmaPropertyData(latitude, longitude, locationSearch.radius);
+        console.log("Fetched PaTMa Property Data for location:", patmaResults);
+        
+        if (patmaResults && Array.isArray(patmaResults)) {
+          setPatmaProperties(patmaResults);
+          
+          // Convert PaTMa properties to the PropertyListing format
+          const mappedProperties = patmaResults.map((patmaProperty) => {
+            return mapPatmaToPropertyListing(patmaProperty);
+          });
+          
+          // Set properties state with ONLY the mapped PaTMa properties
+          setProperties(mappedProperties);
+          
+          if (mappedProperties.length > 0) {
+            toast.success(`Found ${mappedProperties.length} properties near ${locationSearch.location}`);
+          } else {
+            toast.info(`No properties found near ${locationSearch.location}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error searching by location:", error);
+      toast.error("Location not found or error searching properties");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Helper function to map UKProperty to PropertyListing
-  // const mapUKPropertyToListing = (ukProperty: UKProperty): PropertyListing => {
-  //   const rentalEstimate = calculateRentalEstimate(
-  //     ukProperty.price, 
-  //     ukProperty.bedrooms,
-  //     ukProperty.property_type || ''
-  //   );
+  // Function to map PaTMa property data to PropertyListing format
+  const mapPatmaToPropertyListing = (patmaProperty: PatmaProperty): PropertyListing => {
+    // Determine the price - use last_sold_price if price/asking_price are not available
+    const price = patmaProperty.price || patmaProperty.asking_price || patmaProperty.last_sold_price || 0;
     
-  //   return {
-  //     id: ukProperty.id,
-  //     address: ukProperty.address,
-  //     price: ukProperty.price,
-  //     bedrooms: ukProperty.bedrooms,
-  //     bathrooms: ukProperty.bathrooms,
-  //     square_feet: ukProperty.square_feet,
-  //     image_url: ukProperty.image_url,
-  //     roi_estimate: calculateROI(ukProperty.price, rentalEstimate),
-  //     rental_estimate: rentalEstimate,
-  //     investment_highlights: {
-  //       location: ukProperty.address,
-  //       type: ukProperty.property_type || '',
-  //       features: ''
-  //     },
-  //     investment_score: 70, // Default score
-  //     created_at: ukProperty.created_at,
-  //     updated_at: ukProperty.updated_at,
-  //     source: "uk_property_api",
-  //     listing_url: "#",
-  //     description: ukProperty.description,
-  //     property_type: ukProperty.property_type,
-  //     agent: ukProperty.agent,
-  //     ai_analysis: {
-  //       summary: "Analysis not available for this property",
-  //       recommendation: "Consider researching the area further"
-  //     },
-  //     market_analysis: {
-  //       trend: "Market data not available",
-  //       demand: "Unknown"
-  //     },
-  //     bidding_recommendation: ukProperty.price * 0.95,
-  //     last_sold_price: null,
-  //     price_history: null,
-  //     latitude: ukProperty.latitude,
-  //     longitude: ukProperty.longitude,
-  //     property_details: {
-  //       market_demand: ukProperty.property_details?.market_demand || "Medium",
-  //       area_growth: ukProperty.property_details?.area_growth || "3.5%",
-  //       crime_rate: ukProperty.property_details?.crime_rate || "Average",
-  //       nearby_schools: ukProperty.property_details?.nearby_schools || 0,
-  //       energy_rating: ukProperty.property_details?.energy_rating || "Unknown",
-  //       council_tax_band: ukProperty.property_details?.council_tax_band || "Unknown",
-  //       property_features: ukProperty.property_details?.property_features || []
-  //     },
-  //     market_trends: {
-  //       appreciation_rate: 3.2,
-  //       market_activity: "Moderate"
-  //     }
-  //   };
-  // };
+    // Log the price to help debug prices outside our range
+    if (price < 70000 || price > 275000) {
+      console.warn(`Property outside price range: ${patmaProperty.address} - £${price.toLocaleString()}`);
+    }
+    
+    // Extract property type from address if not available
+    const propertyType = patmaProperty.property_type || 
+      (patmaProperty.address?.toLowerCase().includes("flat") ? "Flat" : 
+       patmaProperty.address?.toLowerCase().includes("house") ? "House" : "Property");
+    
+    // Get a property-specific image based on the property type and address
+    const imageUrl = getPropertyImage(propertyType, patmaProperty.address || "");
+    
+    // Extract bedrooms/bathrooms from data
+    const bedrooms = patmaProperty.bedrooms || 
+      (patmaProperty.address?.match(/\b(\d+)\s*bed/i)?.[1] ? 
+       parseInt(patmaProperty.address?.match(/\b(\d+)\s*bed/i)[1]) : null);
+    
+    // If no bedrooms data is available, estimate based on property type and price
+    let actualBedrooms = bedrooms;
+    const bedroomsVerified = patmaProperty.bedrooms_estimated === true ? false : 
+                            (actualBedrooms === null ? false : true);
+    
+    if (actualBedrooms === null) {
+      // Estimate bedrooms based on property type and price
+      if (propertyType.toLowerCase().includes('flat') || propertyType.toLowerCase().includes('apartment')) {
+        // For flats/apartments
+        if (price < 120000) actualBedrooms = 1; 
+        else if (price < 180000) actualBedrooms = 2;
+        else actualBedrooms = 3;
+      } else if (propertyType.toLowerCase().includes('detached')) {
+        // For detached houses
+        if (price < 150000) actualBedrooms = 2;
+        else if (price < 230000) actualBedrooms = 3;
+        else if (price < 300000) actualBedrooms = 4;
+        else actualBedrooms = 5;
+      } else {
+        // For terraced, semi-detached, and others
+        if (price < 120000) actualBedrooms = 2;
+        else if (price < 200000) actualBedrooms = 3;
+        else actualBedrooms = 4;
+      }
+    }
+    
+    // Generate fallback bathroom count based on property type and bedrooms
+    let bathrooms = patmaProperty.bathrooms;
+    let bathroomsVerified = true; // Default: assume data is verified if it exists
+    
+    if (bathrooms === null || bathrooms === undefined) {
+      bathroomsVerified = false; // We're estimating, so mark as not verified
+      // Estimate bathrooms based on number of bedrooms and property type
+      if (actualBedrooms) {
+        if (propertyType.toLowerCase().includes('flat') || propertyType.toLowerCase().includes('apartment')) {
+          // Flats usually have fewer bathrooms
+          bathrooms = actualBedrooms > 2 ? 2 : 1;
+        } else if (propertyType.toLowerCase().includes('detached')) {
+          // Detached houses usually have more bathrooms
+          bathrooms = Math.min(Math.ceil(actualBedrooms / 2) + 1, actualBedrooms);
+        } else {
+          // For terraced, semi-detached, and other house types
+          bathrooms = Math.min(Math.ceil(actualBedrooms / 2), actualBedrooms);
+        }
+      } else {
+        // Default to 1 bathroom if no bedroom info either
+        bathrooms = 1;
+      }
+    }
+    
+    // Generate a description if none exists
+    const description = patmaProperty.description || (() => {
+      const bedroomText = actualBedrooms ? `${actualBedrooms} bedroom` : '';
+      const locationText = patmaProperty.address ? 
+        `in ${patmaProperty.address.split(',').pop()?.trim() || 'a great location'}` : '';
+      
+      return `A ${bedroomText} ${propertyType} ${locationText}. This property has potential as an investment opportunity. Please contact the agent for more details and to arrange a viewing.`;
+    })();
+    
+    // Determine if square footage is directly from the API (verified) or estimated
+    let squareFeet = patmaProperty.floor_area_sqft || patmaProperty.square_feet || patmaProperty.area || null;
+    let squareFeetVerified = true; // Default to true if data exists
+    
+    // Check if we have direct floor_area_sqft data from the API
+    if (patmaProperty.floor_area_sqft) {
+      squareFeetVerified = true; // Directly from PaTMa API, so verified
+    } else if (patmaProperty.square_feet || patmaProperty.area) {
+      squareFeetVerified = false; // Using fallback data, so mark as unverified
+    }
+    
+    // If no square footage data is available, estimate based on property type and bedrooms
+    if (squareFeet === null) {
+      squareFeetVerified = false; // We're estimating, so mark as not verified
+      if (actualBedrooms) {
+        // Rough estimates based on UK averages
+        if (propertyType.toLowerCase().includes('flat') || propertyType.toLowerCase().includes('apartment')) {
+          squareFeet = actualBedrooms * 350; // ~350 sq ft per bedroom for flats
+        } else if (propertyType.toLowerCase().includes('detached')) {
+          squareFeet = actualBedrooms * 450; // ~450 sq ft per bedroom for detached
+        } else {
+          squareFeet = actualBedrooms * 400; // ~400 sq ft per bedroom for other houses
+        }
+      } else {
+        // Default estimate if we don't even have bedroom count
+        squareFeet = 800; // Average 1-2 bedroom property
+      }
+    }
+    
+    return {
+      id: patmaProperty.id || `patma-${Math.random().toString(36).substr(2, 9)}`,
+      address: patmaProperty.address || patmaProperty.location || "Unknown address",
+      price: price,
+      bedrooms: actualBedrooms,
+      bedrooms_verified: bedroomsVerified,
+      bathrooms: bathrooms,
+      bathrooms_verified: bathroomsVerified,
+      square_feet: squareFeet,
+      square_feet_verified: squareFeetVerified,
+      image_url: imageUrl,
+      roi_estimate: patmaProperty.roi || calculateROI(
+        price, 
+        patmaProperty.rental_value || calculateRentalEstimate(price, actualBedrooms, propertyType)
+      ),
+      rental_estimate: patmaProperty.rental_value || calculateRentalEstimate(
+        price, 
+        actualBedrooms, 
+        propertyType
+      ),
+      investment_highlights: {
+        location: patmaProperty.location || patmaProperty.address || "Unknown",
+        type: propertyType,
+        features: patmaProperty.features ? patmaProperty.features.slice(0, 3).join(", ") : ""
+      },
+      investment_score: patmaProperty.investment_score || 70,
+      created_at: patmaProperty.created_at || new Date().toISOString(),
+      updated_at: patmaProperty.updated_at || new Date().toISOString(),
+      source: "patma",
+      listing_url: patmaProperty.url || "#",
+      listing_type: patmaProperty.listing_type || "sale",
+      description: description,
+      property_type: propertyType,
+      agent: patmaProperty.agent || { name: "PaTMa Agent", phone: "N/A" },
+      ai_analysis: {
+        summary: patmaProperty.ai_analysis || "Analysis not available for this property",
+        recommendation: patmaProperty.recommendation || "Consider researching the area further"
+      },
+      market_analysis: {
+        trend: patmaProperty.market_trend || "Market data not available",
+        demand: patmaProperty.demand || "Unknown"
+      },
+      bidding_recommendation: patmaProperty.bidding_recommendation || (price * 0.95),
+      last_sold_price: patmaProperty.last_sold_price || null,
+      price_history: patmaProperty.price_history || null,
+      latitude: patmaProperty.latitude || patmaProperty.lat || null,
+      longitude: patmaProperty.longitude || patmaProperty.lng || null,
+      property_details: {
+        market_demand: patmaProperty.market_demand || "Medium",
+        area_growth: patmaProperty.area_growth || "3.5%",
+        crime_rate: patmaProperty.crime_rate || "Average",
+        nearby_schools: patmaProperty.nearby_schools || 0,
+        energy_rating: patmaProperty.energy_rating || "Unknown",
+        council_tax_band: patmaProperty.council_tax_band || "Unknown",
+        property_features: patmaProperty.features || []
+      },
+      market_trends: {
+        appreciation_rate: patmaProperty.appreciation_rate || 3.2,
+        market_activity: patmaProperty.market_activity || "Moderate"
+      }
+    };
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 pt-16">
@@ -583,79 +701,123 @@ const Invest = () => {
           </div>
         </div>
       </nav>
-
+      
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Smart Investment Properties</h1>
-          <p className="text-lg text-gray-600">AI-powered analysis and bidding recommendations for high-potential investments</p>
-        </div>
-
-        <div className="mb-8">
-          <PropertySearch 
-            onPropertiesFound={(properties: MappedProperty[]) => handlePropertiesFound(properties)}
-            onSearchStart={() => setLoading(true)}
-            onSearchComplete={() => setLoading(false)}
-          />
-        </div>
-
-        {properties.length > 0 && (
-          <div className="flex justify-between items-center mb-6">
-            <div className="text-sm text-gray-500">
-              {properties.length} {properties.length === 1 ? 'property' : 'properties'} found
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleClearResults}
-              className="flex items-center gap-1"
-            >
-              <XCircle className="h-4 w-4" />
-              Clear Results
-            </Button>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold">Invest in Properties</h1>
+            <p className="text-gray-500 mt-1">Find your next investment opportunity.</p>
           </div>
-        )}
-
-        {loading ? (
-          <div className="flex justify-center items-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-          </div>
-        ) : properties.length > 0 ? (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {properties.map((property) => {
-              const bidRec = getBidRecommendation(property);
-              const addressParts = property.address.split(',');
-              const city = addressParts[1]?.trim() || '';
-              const stateZip = addressParts[2]?.trim().split(' ') || ['', ''];
-              const state = stateZip[0] || '';
-              const postalCode = stateZip[1] || '';
-              
-              return (
-                <PropertyCard 
-                  key={property.id} 
-                  property={property} 
-                  onClick={() => handlePropertyClick(property)}
+          
+          <div className="mt-4 md:mt-0 flex flex-col md:flex-row gap-2 items-end">
+            <div>
+              <Label htmlFor="location">Location or Postcode</Label>
+              <div className="flex gap-2">
+                <Input 
+                  id="location"
+                  placeholder="e.g. Manchester or M1 1AA" 
+                  value={locationSearch.location}
+                  onChange={(e) => setLocationSearch(prev => ({...prev, location: e.target.value}))}
+                  className="w-36 md:w-44"
                 />
-              );
-            })}
-          </div>
-        ) : searchPerformed ? (
-          <div className="text-center py-20 bg-gray-50 rounded-lg border border-gray-200">
-            <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-              <Search className="h-8 w-8 text-gray-400" />
+                <Input 
+                  id="radius"
+                  type="number"
+                  placeholder="Radius (miles)" 
+                  value={locationSearch.radius}
+                  onChange={(e) => setLocationSearch(prev => ({...prev, radius: Number(e.target.value) || 5}))}
+                  className="w-32"
+                  min="1"
+                  max="25"
+                />
+                <Button onClick={handleLocationSearch} className="flex items-center gap-1">
+                  <Search className="h-4 w-4" />
+                  Search
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Filtering for: 3+ beds, 2+ baths, price £70K-£275K, detached/semi-detached/terraced
+              </div>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No properties found</h3>
-            <p className="text-gray-600 mb-6">Try adjusting your search to property in Edinburgh</p>
           </div>
-        ) : (
-          <div className="text-center py-20 bg-gray-50 rounded-lg border border-gray-200">
-            <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-              <Home className="h-8 w-8 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Start exploring investment properties</h3>
-            <p className="text-gray-600 mb-4">Search for existing properties or generate new listings</p>
-          </div>
-        )}
-
+        </div>
+        
+        <div className="grid gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Property Listings</CardTitle>
+              <CardDescription>
+                Properties matching investment criteria: 3+ bedrooms, 2+ bathrooms, £70K-£275K, detached/semi-detached/terraced houses. Looking for properties with "cash only" or "modernization needed" opportunities.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center items-center py-8">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                </div>
+              ) : properties.length > 0 ? (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {properties.map((property) => (
+                    <PropertyCard
+                      key={property.id}
+                      property={property}
+                      onClick={() => handlePropertyClick(property)}
+                    />
+                  ))}
+                </div>
+              ) :
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">No properties found.</p>
+                  <Button 
+                    variant="outline" 
+                    className="mt-4"
+                    onClick={() => {
+                      const fetchData = async () => {
+                        setLoading(true);
+                        try {
+                          // Use the current search location coordinates instead of defaults
+                          const data = await fetchPatmaPropertyData(
+                            locationSearch.latitude,
+                            locationSearch.longitude,
+                            locationSearch.radius
+                          );
+                          console.log("Refreshed PaTMa Property Data:", data);
+                          
+                          if (data && Array.isArray(data)) {
+                            setPatmaProperties(data);
+                            
+                            // Convert PaTMa properties to the PropertyListing format
+                            const mappedProperties = data.map((patmaProperty) => {
+                              return mapPatmaToPropertyListing(patmaProperty);
+                            });
+                            
+                            // Update properties state with ONLY the mapped PaTMa properties
+                            if (mappedProperties.length > 0) {
+                              setProperties(mappedProperties);
+                              toast.success(`Found ${mappedProperties.length} properties near ${locationSearch.location || "current location"}`);
+                            } else {
+                              toast.info(`No properties found near ${locationSearch.location || "current location"}`);
+                            }
+                          }
+                        } catch (error) {
+                          console.error("Error fetching PaTMa data:", error);
+                          toast.error("Failed to fetch property data from PaTMa");
+                        } finally {
+                          setLoading(false);
+                        }
+                      };
+                      
+                      fetchData();
+                    }}
+                  >
+                    Refresh Property Data
+                  </Button>
+                </div>
+              }
+            </CardContent>
+          </Card>
+        </div>
+  
         {selectedProperty && (
           <PropertyProposalDialog
             property={selectedProperty}
