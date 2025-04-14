@@ -779,7 +779,9 @@ const Invest = () => {
                           const data = await fetchPatmaPropertyData(
                             locationSearch.latitude,
                             locationSearch.longitude,
-                            locationSearch.radius
+                            locationSearch.radius,
+                            undefined, // Use default filters
+                            true // Bypass cache
                           );
                           console.log("Refreshed PaTMa Property Data:", data);
                           

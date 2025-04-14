@@ -8,10 +8,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Copy, Check, Sparkles } from "lucide-react";
+import { Loader2, Copy, Check, Sparkles, AlertTriangle, School, Shield, Ruler } from "lucide-react";
 import { toast } from "sonner";
 import { PropertyAnalysis } from "@/components/PropertyAnalysis";
 import { analyzeProperty, PropertyAnalysisResult } from "@/utils/openai-api";
+import { fetchPropertyDetails } from "@/utils/rightmove-api";
 
 // Import the PropertyListing type
 interface PropertyListing {
@@ -61,6 +62,45 @@ interface PropertyListing {
   };
 }
 
+interface PropertyDetails {
+  floodRisk: {
+    risk_level: string;
+    flood_zone: string;
+    risk_factors: string[];
+    last_updated: string;
+  } | null;
+  schools: Array<{
+    name: string;
+    type: string;
+    distance: number;
+    rating: string;
+    pupils: number;
+    performance: {
+      progress_score?: number;
+      attainment_score?: number;
+    };
+  }>;
+  crime: {
+    crime_rate: string;
+    total_crimes: number;
+    crime_breakdown: Record<string, number>;
+    trend: string;
+    comparison: {
+      above_average: string[];
+      below_average: string[];
+    };
+  } | null;
+  floorAreas: {
+    total_area: number;
+    floor_plans: Array<{
+      floor: string;
+      area: number;
+      rooms: string[];
+    }>;
+    epc_rating?: string;
+  } | null;
+}
+
 interface PropertyProposalDialogProps {
   property: PropertyListing;
   open: boolean;
@@ -77,7 +117,38 @@ export function PropertyProposalDialog({
   const [analysis, setAnalysis] = useState<PropertyAnalysisResult | null>(null);
   const [generatedProposal, setGeneratedProposal] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [propertyDetails, setPropertyDetails] = useState<PropertyDetails | null>(null);
   const proposalTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fetch additional property details when dialog opens
+  useEffect(() => {
+    if (open && property.address) {
+      const fetchDetails = async () => {
+        try {
+          // Extract postcode from address
+          const postcode = property.address.split(',').pop()?.trim();
+          if (!postcode) {
+            console.error('Could not extract postcode from address');
+            toast.error("Could not load property details - missing postcode");
+            return;
+          }
+
+          const details = await fetchPropertyDetails(postcode);
+          if (details) {
+            setPropertyDetails(details);
+            console.log("Property details:", details);
+          } else {
+            console.log("No property details found");
+            toast.error("Could not load property details");
+          }
+        } catch (error) {
+          console.error("Error fetching property details:", error);
+          toast.error("Error loading property details");
+        }
+      };
+      fetchDetails();
+    }
+  }, [open, property.address]);
 
   // Log property details for debugging and trigger analysis - RESTORED
   useEffect(() => {
@@ -326,45 +397,145 @@ ${propertyDetails.recommendation}
                 )}
               </div>
               
-              {/* Property Description - Highlighted in a dedicated section */}
-              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                <h4 className="text-md font-medium mb-2">Property Description</h4>
-                {property.description ? (
+              {property.description && (
+                <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                  <h4 className="text-md font-medium mb-2">Property Description</h4>
                   <p className="text-sm text-gray-600 dark:text-gray-300">{property.description}</p>
-                ) : (
-                  <p className="text-sm text-gray-500 italic">No description available for this property.</p>
-                )}
-              </div>
-              
-              {property.agent && (
-                <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
-                  <h4 className="text-md font-medium mb-2">Agent Details</h4>
-                  <div className="text-sm">
-                    <p><span className="text-gray-500">Name:</span> {property.agent.name || 'Unknown'}</p>
-                    {property.agent.phone && <p><span className="text-gray-500">Phone:</span> {property.agent.phone}</p>}
-                  </div>
                 </div>
               )}
             </div>
           </div>
           
-          <div>
-            {!analysisCompleted ? (
-              <div className="space-y-4 flex flex-col items-center justify-center h-full">
-                <p className="text-center text-gray-500">
-                  {loading ? "Analyzing property with OpenAI..." : "Preparing property analysis..."}
-                </p>
-                
-                {loading && (
-                  <div className="flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  </div>
-                )}
+          <div className="space-y-4">
+            {/* Flood Risk Section */}
+            {propertyDetails?.floodRisk && (
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                  <h3 className="font-semibold">Flood Risk Assessment</h3>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm">
+                    Risk Level: <span className="font-medium">{propertyDetails.floodRisk.risk_level}</span>
+                  </p>
+                  <p className="text-sm">
+                    Flood Zone: <span className="font-medium">{propertyDetails.floodRisk.flood_zone}</span>
+                  </p>
+                  {propertyDetails.floodRisk.risk_factors.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium mb-1">Risk Factors:</p>
+                      <ul className="text-sm list-disc list-inside">
+                        {propertyDetails.floodRisk.risk_factors.map((factor, index) => (
+                          <li key={index}>{factor}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500">
+                    Last updated: {new Date(propertyDetails.floodRisk.last_updated).toLocaleDateString()}
+                  </p>
+                </div>
               </div>
-            ) : (
+            )}
+
+            {/* Schools Section */}
+            {propertyDetails?.schools && propertyDetails.schools.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <School className="h-5 w-5 text-blue-500" />
+                  <h3 className="font-semibold">Nearby Schools</h3>
+                </div>
+                <div className="space-y-3">
+                  {propertyDetails.schools.map((school, index) => (
+                    <div key={index} className="border-b last:border-0 pb-2">
+                      <p className="font-medium text-sm">{school.name}</p>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <p>Type: {school.type}</p>
+                        <p>Distance: {school.distance.toFixed(1)} miles</p>
+                        <p>Rating: {school.rating}</p>
+                        <p>Pupils: {school.pupils}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Crime Statistics Section */}
+            {propertyDetails?.crime && (
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="h-5 w-5 text-red-500" />
+                  <h3 className="font-semibold">Crime Statistics</h3>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm">
+                    Crime Rate: <span className="font-medium">{propertyDetails.crime.crime_rate}</span>
+                  </p>
+                  <p className="text-sm">
+                    Total Crimes: <span className="font-medium">{propertyDetails.crime.total_crimes}</span>
+                  </p>
+                  <p className="text-sm">
+                    Trend: <span className="font-medium">{propertyDetails.crime.trend}</span>
+                  </p>
+                  <div>
+                    <p className="text-sm font-medium mb-1">Crime Breakdown:</p>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {Object.entries(propertyDetails.crime.crime_breakdown).map(([type, count]) => (
+                        <p key={type}>
+                          {type}: <span className="font-medium">{count}</span>
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Floor Areas Section */}
+            {propertyDetails?.floorAreas && (
+              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <Ruler className="h-5 w-5 text-green-500" />
+                  <h3 className="font-semibold">Floor Areas</h3>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm">
+                    Total Area: <span className="font-medium">{propertyDetails.floorAreas.total_area} sq ft</span>
+                  </p>
+                  {propertyDetails.floorAreas.epc_rating && (
+                    <p className="text-sm">
+                      EPC Rating: <span className="font-medium">{propertyDetails.floorAreas.epc_rating}</span>
+                    </p>
+                  )}
+                  <div>
+                    <p className="text-sm font-medium mb-1">Floor Plans:</p>
+                    {propertyDetails.floorAreas.floor_plans.map((plan, index) => (
+                      <div key={index} className="border-b last:border-0 pb-2 mb-2">
+                        <p className="text-sm font-medium">{plan.floor}</p>
+                        <p className="text-sm">Area: {plan.area} sq ft</p>
+                        {plan.rooms.length > 0 && (
+                          <div className="text-sm">
+                            <p className="font-medium">Rooms:</p>
+                            <ul className="list-disc list-inside">
+                              {plan.rooms.map((room, roomIndex) => (
+                                <li key={roomIndex}>{room}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Property Analysis Component */}
+            {analysisCompleted && analysis && (
               <PropertyAnalysis
                 propertyId={property.id}
-                currentScore={analysis ? analysis.investment_score : null}
+                currentScore={analysis.investment_score}
                 latitude={property.latitude}
                 longitude={property.longitude}
                 price={property.price}
@@ -378,6 +549,7 @@ ${propertyDetails.recommendation}
           </div>
         </div>
 
+        {/* Proposal Generation Section */}
         {generatedProposal && (
           <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-2">
