@@ -8,7 +8,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Copy, Check, Sparkles, AlertTriangle, School, Shield, Ruler, Building2, MapPin } from "lucide-react";
+import { Loader2, Copy, Check, Sparkles, AlertTriangle, School, Shield, Ruler, Building2, MapPin, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { PropertyAnalysis } from "@/components/PropertyAnalysis";
 import { analyzeProperty, PropertyAnalysisResult } from "@/utils/openai-api";
@@ -143,6 +143,11 @@ export function PropertyProposalDialog({
   const [copySuccess, setCopySuccess] = useState(false);
   const [propertyDetails, setPropertyDetails] = useState<PropertyDetails | null>(null);
   const proposalTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [expandedSections, setExpandedSections] = useState({
+    location: false,
+    schools: false,
+    crime: false
+  });
 
   // Fetch additional property details when dialog opens
   useEffect(() => {
@@ -330,6 +335,13 @@ ${propertyDetails.recommendation}
     }
   };
 
+  const toggleSection = (section: 'location' | 'schools' | 'crime') => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
+
   console.log("Property details=>", property);
 
   return (
@@ -434,69 +446,117 @@ ${propertyDetails.recommendation}
             {/* Geography Section */}
             {propertyDetails?.geographies && (
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
-                <div className="flex items-center gap-2 mb-2">
-                  <MapPin className="h-5 w-5 text-green-500" />
-                  <h3 className="font-semibold">Location Details</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-green-500" />
+                    <h3 className="font-semibold">Location Details</h3>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => toggleSection('location')}
+                    className="h-8 w-8 p-0"
+                  >
+                    {expandedSections.location ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <p>Local Authority: <span className="font-medium">{propertyDetails.geographies.local_authority}</span></p>
-                  <p>Ward: <span className="font-medium">{propertyDetails.geographies.ward}</span></p>
-                  <p>Region: <span className="font-medium">{propertyDetails.geographies.region}</span></p>
-                  <p>County: <span className="font-medium">{propertyDetails.geographies.county}</span></p>
-                  <p>Police Force: <span className="font-medium">{propertyDetails.geographies.police_force}</span></p>
-                  <p>Planning Authority: <span className="font-medium">{propertyDetails.geographies.planning_authority}</span></p>
-                </div>
+                {expandedSections.location && (
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <p>Local Authority: <span className="font-medium">{propertyDetails.geographies.local_authority}</span></p>
+                    <p>Ward: <span className="font-medium">{propertyDetails.geographies.ward}</span></p>
+                    <p>Region: <span className="font-medium">{propertyDetails.geographies.region}</span></p>
+                    <p>County: <span className="font-medium">{propertyDetails.geographies.county}</span></p>
+                    <p>Police Force: <span className="font-medium">{propertyDetails.geographies.police_force}</span></p>
+                    <p>Planning Authority: <span className="font-medium">{propertyDetails.geographies.planning_authority}</span></p>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Schools Section */}
             {propertyDetails?.schools && propertyDetails.schools.length > 0 && (
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
-                <div className="flex items-center gap-2 mb-2">
-                  <School className="h-5 w-5 text-blue-500" />
-                  <h3 className="font-semibold">Nearby Schools</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <School className="h-5 w-5 text-blue-500" />
+                    <h3 className="font-semibold">Nearby Schools</h3>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => toggleSection('schools')}
+                    className="h-8 w-8 p-0"
+                  >
+                    {expandedSections.schools ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
-                <div className="space-y-3">
-                  {propertyDetails.schools.map((school, index) => (
-                    <div key={index} className="border-b last:border-0 pb-2">
-                      <p className="font-medium text-sm">{school.name}</p>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <p>Type: {school.type}</p>
-                        <p>Distance: {school.distance.toFixed(1)} miles</p>
-                        <p>Rating: {school.rating}</p>
-                        <p>Pupils: {school.pupils}</p>
+                {expandedSections.schools && (
+                  <div className="space-y-3">
+                    {propertyDetails.schools.map((school, index) => (
+                      <div key={index} className="border-b last:border-0 pb-2">
+                        <p className="font-medium text-sm">{school.name}</p>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <p>Type: {school.type}</p>
+                          <p>Distance: {school.distance.toFixed(1)} miles</p>
+                          <p>Rating: {school.rating}</p>
+                          <p>Pupils: {school.pupils}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Crime Statistics Section */}
             {propertyDetails?.crime && (
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
-                <div className="flex items-center gap-2 mb-2">
-                  <Shield className="h-5 w-5 text-red-500" />
-                  <h3 className="font-semibold">Crime Statistics</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-red-500" />
+                    <h3 className="font-semibold">Crime Statistics</h3>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => toggleSection('crime')}
+                    className="h-8 w-8 p-0"
+                  >
+                    {expandedSections.crime ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  <p className="text-sm">
-                    Crime Rate: <span className="font-medium">{propertyDetails.crime.crime_rate}</span>
-                  </p>
-                  <p className="text-sm">
-                    Total Crimes: <span className="font-medium">{propertyDetails.crime.total_crimes}</span>
-                  </p>
-                  <div>
-                    <p className="text-sm font-medium mb-1">Crime Breakdown:</p>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      {Object.entries(propertyDetails.crime.crime_breakdown).map(([type, count]) => (
-                        <p key={type}>
-                          {type}: <span className="font-medium">{count}</span>
-                        </p>
-                      ))}
+                {expandedSections.crime && (
+                  <div className="space-y-2">
+                    <p className="text-sm">
+                      Crime Rate: <span className="font-medium">{propertyDetails.crime.crime_rate}</span>
+                    </p>
+                    <p className="text-sm">
+                      Total Crimes: <span className="font-medium">{propertyDetails.crime.total_crimes}</span>
+                    </p>
+                    <div>
+                      <p className="text-sm font-medium mb-1">Crime Breakdown:</p>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        {Object.entries(propertyDetails.crime.crime_breakdown).map(([type, count]) => (
+                          <p key={type}>
+                            {type}: <span className="font-medium">{count}</span>
+                          </p>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 
