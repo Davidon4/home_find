@@ -698,8 +698,23 @@ export const fetchPropertyDetails = async (address: string) => {
     console.log('Using postcode:', postcode);
 
     // Make parallel API calls for each type of data
-    const [floodRiskResponse, schoolsResponse, crimeResponse, floorAreasResponse] = await Promise.all([
-      axios.get(`${baseUrl}/flood-risk`, {
+    const [planningResponse, designatedAreasResponse, geographiesResponse, schoolsResponse, crimeResponse] = await Promise.all([
+      axios.get(`${baseUrl}/planning`, {
+        headers,
+        params: {
+          api_key: apiKey,
+          postcode: postcode
+        }
+      }),
+      axios.get(`${baseUrl}/designated-areas`, {
+        headers,
+        params: {
+          api_key: apiKey,
+          postcode: postcode,
+          area_types: 'conservation_area,listed_building,green_belt,aonb,national_park'
+        }
+      }),
+      axios.get(`${baseUrl}/geographies`, {
         headers,
         params: {
           api_key: apiKey,
@@ -719,34 +734,57 @@ export const fetchPropertyDetails = async (address: string) => {
           api_key: apiKey,
           postcode: postcode
         }
-      }),
-      axios.get(`${baseUrl}/floor-areas`, {
-        headers,
-        params: {
-          api_key: apiKey,
-          postcode: postcode
-        }
       })
     ]);
 
     // Process each response and extract the data
-    const floodRiskData = floodRiskResponse.data?.status === 'success' ? floodRiskResponse.data.data : null;
+    const planningData = planningResponse.data?.status === 'success' ? planningResponse.data.data : null;
+    const designatedAreasData = designatedAreasResponse.data?.status === 'success' ? designatedAreasResponse.data.data : null;
+    const geographiesData = geographiesResponse.data?.status === 'success' ? geographiesResponse.data.data : null;
     const schoolsData = schoolsResponse.data?.status === 'success' ? schoolsResponse.data.data.schools : [];
     const crimeData = crimeResponse.data?.status === 'success' ? crimeResponse.data.data : null;
-    const floorAreasData = floorAreasResponse.data?.status === 'success' ? floorAreasResponse.data.data : null;
 
     // Log responses for debugging
-    console.log('Flood Risk Response:', floodRiskResponse.data);
+    console.log('Planning Response:', planningResponse.data);
+    console.log('Designated Areas Response:', designatedAreasResponse.data);
+    console.log('Geographies Response:', geographiesResponse.data);
     console.log('Schools Response:', schoolsResponse.data);
     console.log('Crime Response:', crimeResponse.data);
-    console.log('Floor Areas Response:', floorAreasResponse.data);
 
     return {
-      floodRisk: floodRiskData ? {
-        risk_level: floodRiskData.risk_status || 'Unknown',
-        flood_zone: 'N/A',
-        risk_factors: [],
-        last_updated: new Date().toISOString()
+      planning: planningData ? {
+        applications: planningData.planning_applications?.map(app => ({
+          reference: app.reference,
+          description: app.description,
+          status: app.decision_status,
+          date_submitted: app.date_received,
+          decision: app.decision_text,
+          agent: app.agent,
+          type: app.type,
+          url: app.url,
+          address: app.address,
+          date_decided: app.date_decided,
+          date_validated: app.date_validated,
+          case_officer: app.case_officer
+        })) || []
+      } : null,
+      designatedAreas: designatedAreasData ? {
+        areas: designatedAreasData.areas?.map(area => ({
+          type: area.area_type,
+          within: area.within_area,
+          name: area.within_name
+        })) || []
+      } : null,
+      geographies: geographiesData ? {
+        local_authority: geographiesData.local_authority || 'Unknown',
+        ward: geographiesData.electoral_ward || 'Unknown',
+        constituency: geographiesData.parliamentary_constituency || 'Unknown',
+        region: geographiesData.region || 'Unknown',
+        county: geographiesData.county || 'Unknown',
+        parish: geographiesData.parish || 'Unknown',
+        country: geographiesData.country || 'Unknown',
+        police_force: geographiesData.police_force || 'Unknown',
+        planning_authority: geographiesData.planning_authority || 'Unknown'
       } : null,
       schools: schoolsData ? schoolsData.map((school: School) => ({
         name: school.name,
@@ -768,11 +806,6 @@ export const fetchPropertyDetails = async (address: string) => {
           above_average: crimeData.above_national_average || [],
           below_average: crimeData.below_national_average || []
         }
-      } : null,
-      floorAreas: floorAreasData ? {
-        total_area: floorAreasData.mean_floor_area_sqft || 0,
-        floor_plans: floorAreasData.available_results || [],
-        epc_rating: 'N/A'
       } : null
     };
   } catch (error) {

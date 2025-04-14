@@ -8,7 +8,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Copy, Check, Sparkles, AlertTriangle, School, Shield, Ruler } from "lucide-react";
+import { Loader2, Copy, Check, Sparkles, AlertTriangle, School, Shield, Ruler, Building2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { PropertyAnalysis } from "@/components/PropertyAnalysis";
 import { analyzeProperty, PropertyAnalysisResult } from "@/utils/openai-api";
@@ -63,11 +63,44 @@ interface PropertyListing {
 }
 
 interface PropertyDetails {
-  floodRisk: {
-    risk_level: string;
-    flood_zone: string;
-    risk_factors: string[];
-    last_updated: string;
+  planning: {
+    applications: Array<{
+      reference: string;
+      description: string;
+      status: string;
+      date_submitted: string;
+      decision: string;
+      agent: {
+        name: string;
+        company: string;
+        address: string;
+        tel: string;
+      };
+      type: string;
+      url: string;
+      address: string;
+      date_decided: string;
+      date_validated: string;
+      case_officer: string;
+    }>;
+  } | null;
+  designatedAreas: {
+    areas: Array<{
+      type: string;
+      within: boolean;
+      name: string;
+    }>;
+  } | null;
+  geographies: {
+    local_authority: string;
+    ward: string;
+    constituency: string;
+    region: string;
+    county: string;
+    parish: string;
+    country: string;
+    police_force: string;
+    planning_authority: string;
   } | null;
   schools: Array<{
     name: string;
@@ -89,15 +122,6 @@ interface PropertyDetails {
       above_average: string[];
       below_average: string[];
     };
-  } | null;
-  floorAreas: {
-    total_area: number;
-    floor_plans: Array<{
-      floor: string;
-      area: number;
-      rooms: string[];
-    }>;
-    epc_rating?: string;
   } | null;
 }
 
@@ -407,33 +431,20 @@ ${propertyDetails.recommendation}
           </div>
           
           <div className="space-y-4">
-            {/* Flood Risk Section */}
-            {propertyDetails?.floodRisk && (
+            {/* Geography Section */}
+            {propertyDetails?.geographies && (
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
                 <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                  <h3 className="font-semibold">Flood Risk Assessment</h3>
+                  <MapPin className="h-5 w-5 text-green-500" />
+                  <h3 className="font-semibold">Location Details</h3>
                 </div>
-                <div className="space-y-2">
-                  <p className="text-sm">
-                    Risk Level: <span className="font-medium">{propertyDetails.floodRisk.risk_level}</span>
-                  </p>
-                  <p className="text-sm">
-                    Flood Zone: <span className="font-medium">{propertyDetails.floodRisk.flood_zone}</span>
-                  </p>
-                  {propertyDetails.floodRisk.risk_factors.length > 0 && (
-                    <div>
-                      <p className="text-sm font-medium mb-1">Risk Factors:</p>
-                      <ul className="text-sm list-disc list-inside">
-                        {propertyDetails.floodRisk.risk_factors.map((factor, index) => (
-                          <li key={index}>{factor}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  <p className="text-xs text-gray-500">
-                    Last updated: {new Date(propertyDetails.floodRisk.last_updated).toLocaleDateString()}
-                  </p>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <p>Local Authority: <span className="font-medium">{propertyDetails.geographies.local_authority}</span></p>
+                  <p>Ward: <span className="font-medium">{propertyDetails.geographies.ward}</span></p>
+                  <p>Region: <span className="font-medium">{propertyDetails.geographies.region}</span></p>
+                  <p>County: <span className="font-medium">{propertyDetails.geographies.county}</span></p>
+                  <p>Police Force: <span className="font-medium">{propertyDetails.geographies.police_force}</span></p>
+                  <p>Planning Authority: <span className="font-medium">{propertyDetails.geographies.planning_authority}</span></p>
                 </div>
               </div>
             )}
@@ -475,9 +486,6 @@ ${propertyDetails.recommendation}
                   <p className="text-sm">
                     Total Crimes: <span className="font-medium">{propertyDetails.crime.total_crimes}</span>
                   </p>
-                  <p className="text-sm">
-                    Trend: <span className="font-medium">{propertyDetails.crime.trend}</span>
-                  </p>
                   <div>
                     <p className="text-sm font-medium mb-1">Crime Breakdown:</p>
                     <div className="grid grid-cols-2 gap-2 text-sm">
@@ -487,45 +495,6 @@ ${propertyDetails.recommendation}
                         </p>
                       ))}
                     </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Floor Areas Section */}
-            {propertyDetails?.floorAreas && (
-              <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
-                <div className="flex items-center gap-2 mb-2">
-                  <Ruler className="h-5 w-5 text-green-500" />
-                  <h3 className="font-semibold">Floor Areas</h3>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm">
-                    Total Area: <span className="font-medium">{propertyDetails.floorAreas.total_area} sq ft</span>
-                  </p>
-                  {propertyDetails.floorAreas.epc_rating && (
-                    <p className="text-sm">
-                      EPC Rating: <span className="font-medium">{propertyDetails.floorAreas.epc_rating}</span>
-                    </p>
-                  )}
-                  <div>
-                    <p className="text-sm font-medium mb-1">Floor Plans:</p>
-                    {propertyDetails.floorAreas.floor_plans.map((plan, index) => (
-                      <div key={index} className="border-b last:border-0 pb-2 mb-2">
-                        <p className="text-sm font-medium">{plan.floor}</p>
-                        <p className="text-sm">Area: {plan.area} sq ft</p>
-                        {plan.rooms.length > 0 && (
-                          <div className="text-sm">
-                            <p className="font-medium">Rooms:</p>
-                            <ul className="list-disc list-inside">
-                              {plan.rooms.map((room, roomIndex) => (
-                                <li key={roomIndex}>{room}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    ))}
                   </div>
                 </div>
               </div>
