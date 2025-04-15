@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Home, MapPin, Search } from "lucide-react";
+import { Home, MapPin, Search, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { Session } from "@supabase/supabase-js"
@@ -12,6 +12,8 @@ import { fetchPatmaPropertyData } from "@/utils/rightmove-api";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import axios from 'axios';
+import { FilterPanel, FilterState } from "@/components/FilterPanel";
+import { Spinner } from "@/components/ui/spinner";
 
 interface PropertyListing {
   id: string;
@@ -343,9 +345,23 @@ const Invest = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<PropertyListing | null>(null);
   const [isProposalDialogOpen, setIsProposalDialogOpen] = useState(false);
-  const [locationSearch, setLocationSearch] = useState({
-    location: "",  // Changed from postcode to location
-    latitude: 51.507351,  // Default to London
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    propertyType: "",
+    minPrice: "70000",
+    maxPrice: "275000",
+    minBedrooms: "3",
+    maxBedrooms: "",
+    minBathrooms: "2",
+    maxBathrooms: "",
+    minSquareFeet: "",
+    maxSquareFeet: "",
+    propertyStatus: "",
+    listingType: "",
+    dateAdded: "",
+    features: [],
+    location: "",
+    latitude: 51.507351,
     longitude: -0.127758,
     radius: 5
   });
@@ -363,9 +379,9 @@ const Invest = () => {
       try {
         // Fetch initial data using default coordinates (London)
         const patmaResults = await fetchPatmaPropertyData(
-          locationSearch.latitude, 
-          locationSearch.longitude, 
-          locationSearch.radius
+          filters.latitude, 
+          filters.longitude, 
+          filters.radius
         );
         console.log("Fetched initial PaTMa Property Data:", patmaResults);
         
@@ -431,76 +447,74 @@ const Invest = () => {
     setIsProposalDialogOpen(true);
   };
 
-  const handleLocationSearch = async () => {
-    if (!locationSearch.location.trim()) {
-      toast.error("Please enter a location name or postcode");
-      return;
-    }
-    
+  const handleFilterChange = (key: keyof FilterState, value: string | string[] | number) => {
+    setFilters(prev => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const handleClearFilters = () => {
+    setFilters({
+      propertyType: "",
+      minPrice: "70000",
+      maxPrice: "275000",
+      minBedrooms: "3",
+      maxBedrooms: "",
+      minBathrooms: "2",
+      maxBathrooms: "",
+      minSquareFeet: "",
+      maxSquareFeet: "",
+      propertyStatus: "",
+      listingType: "",
+      dateAdded: "",
+      features: [],
+      location: "",
+      latitude: 51.507351,
+      longitude: -0.127758,
+      radius: 5
+    });
+  };
+
+  const handleSearch = async () => {
     setLoading(true);
     try {
-      let geocodeUrl;
-      const searchTerm = locationSearch.location.trim();
+      console.log("Searching with filters:", filters);
       
-      // Check if input is likely a postcode (contains numbers)
-      if (/\d/.test(searchTerm)) {
-        // Use postcodes.io for UK postcodes
-        geocodeUrl = `https://api.postcodes.io/postcodes/${encodeURIComponent(searchTerm)}`;
-      } else {
-        // Use OpenStreetMap Nominatim API for location names
-        geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchTerm)}&format=json&country=UK&limit=1`;
+      if (!filters.latitude || !filters.longitude) {
+        toast.error("Please select a valid location first");
+        return;
       }
-      
-      const response = await fetch(geocodeUrl);
-      const data = await response.json();
-      
-      let latitude, longitude;
-      
-      if (/\d/.test(searchTerm) && data.status === 200 && data.result) {
-        // Postcode.io response format
-        latitude = data.result.latitude;
-        longitude = data.result.longitude;
-      } else if (!(/\d/.test(searchTerm)) && data.length > 0) {
-        // Nominatim response format
-        latitude = parseFloat(data[0].lat);
-        longitude = parseFloat(data[0].lon);
-      } else {
-        throw new Error("Location not found");
-      }
-      
-      if (latitude && longitude) {
-        // Update state with new coordinates
-        setLocationSearch(prev => ({
-          ...prev,
-          latitude,
-          longitude
-        }));
+
+      const patmaResults = await fetchPatmaPropertyData(
+        filters.latitude,
+        filters.longitude,
+        filters.radius,
+        {
+          minBedrooms: parseInt(filters.minBedrooms) || 3,
+          minBathrooms: parseInt(filters.minBathrooms) || 2,
+          minPrice: parseInt(filters.minPrice) || 70000,
+          maxPrice: parseInt(filters.maxPrice) || 275000,
+          propertyTypes: filters.propertyType ? [filters.propertyType.toLowerCase()] : ['semi-detached', 'detached', 'terraced'],
+          includeKeywords: ['cash only', 'modernization', 'modernization needed'],
+          excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction']
+        }
+      );
+
+      if (patmaResults && Array.isArray(patmaResults)) {
+        setPatmaProperties(patmaResults);
+        const mappedProperties = patmaResults.map(mapPatmaToPropertyListing);
+        setProperties(mappedProperties);
         
-        // Fetch properties with new coordinates
-        const patmaResults = await fetchPatmaPropertyData(latitude, longitude, locationSearch.radius);
-        console.log("Fetched PaTMa Property Data for location:", patmaResults);
-        
-        if (patmaResults && Array.isArray(patmaResults)) {
-          setPatmaProperties(patmaResults);
-          
-          // Convert PaTMa properties to the PropertyListing format
-          const mappedProperties = patmaResults.map((patmaProperty) => {
-            return mapPatmaToPropertyListing(patmaProperty);
-          });
-          
-          // Set properties state with ONLY the mapped PaTMa properties
-          setProperties(mappedProperties);
-          
-          if (mappedProperties.length > 0) {
-            toast.success(`Found ${mappedProperties.length} properties near ${locationSearch.location}`);
-          } else {
-            toast.info(`No properties found near ${locationSearch.location}`);
-          }
+        if (mappedProperties.length > 0) {
+          toast.success(`Found ${mappedProperties.length} properties near ${filters.location}`);
+        } else {
+          toast.info(`No properties found near ${filters.location}`);
         }
       }
     } catch (error) {
-      console.error("Error searching by location:", error);
-      toast.error("Location not found or error searching properties");
+      console.error("Error searching properties:", error);
+      toast.error("Failed to search properties");
     } finally {
       setLoading(false);
     }
@@ -703,129 +717,71 @@ const Invest = () => {
       </nav>
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold">Invest in Properties</h1>
-            <p className="text-gray-500 mt-1">Find your next investment opportunity.</p>
+        <div className="flex flex-col gap-6">
+          {/* Filter Panel Toggle */}
+          <div className="flex justify-between items-center">
+            <h1 className="text-2xl font-bold">Property Search</h1>
+            <Button
+              variant="outline"
+              onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+              className="flex items-center gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              {isFilterPanelOpen ? 'Hide Filters' : 'Show Filters'}
+            </Button>
           </div>
-          
-          <div className="mt-4 md:mt-0 flex flex-col md:flex-row gap-2 items-end">
-            <div>
-              <Label htmlFor="location">Location or Postcode</Label>
-              <div className="flex gap-2">
-                <Input 
-                  id="location"
-                  placeholder="e.g. Manchester or M1 1AA" 
-                  value={locationSearch.location}
-                  onChange={(e) => setLocationSearch(prev => ({...prev, location: e.target.value}))}
-                  className="w-36 md:w-44"
-                />
-                <Input 
-                  id="radius"
-                  type="number"
-                  placeholder="Radius (miles)" 
-                  value={locationSearch.radius}
-                  onChange={(e) => setLocationSearch(prev => ({...prev, radius: Number(e.target.value) || 5}))}
-                  className="w-32"
-                  min="1"
-                  max="25"
-                />
-                <Button onClick={handleLocationSearch} className="flex items-center gap-1">
-                  <Search className="h-4 w-4" />
-                  Search
-                </Button>
-              </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                Filtering for: 3+ beds, 2+ baths, price £70K-£275K, detached/semi-detached/terraced
-              </div>
+
+          {/* Filter Panel - Collapsible */}
+          {isFilterPanelOpen && (
+            <div className="w-full">
+              <FilterPanel
+                filters={filters}
+                onFilterChange={handleFilterChange}
+                onClear={handleClearFilters}
+                onSearch={handleSearch}
+              />
             </div>
+          )}
+
+          {/* Main Content */}
+          <div className="w-full">
+            <Card>
+              <CardHeader>
+                <CardTitle>Properties</CardTitle>
+                <CardDescription>
+                  {properties.length} properties found
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex justify-center items-center h-64">
+                    <Spinner />
+                  </div>
+                ) : properties.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">No properties found</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {properties.map((property) => (
+                      <PropertyCard
+                        key={property.id}
+                        property={property}
+                        onClick={() => handlePropertyClick(property)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
-        
-        <div className="grid gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Property Listings</CardTitle>
-              <CardDescription>
-                Properties matching investment criteria: 3+ bedrooms, 2+ bathrooms, £70K-£275K, detached/semi-detached/terraced houses. Looking for properties with "cash only" or "modernization needed" opportunities.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex justify-center items-center py-8">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-                </div>
-              ) : properties.length > 0 ? (
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  {properties.map((property) => (
-                    <PropertyCard
-                      key={property.id}
-                      property={property}
-                      onClick={() => handlePropertyClick(property)}
-                    />
-                  ))}
-                </div>
-              ) :
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground">No properties found.</p>
-                  <Button 
-                    variant="outline" 
-                    className="mt-4"
-                    onClick={() => {
-                      const fetchData = async () => {
-                        setLoading(true);
-                        try {
-                          // Use the current search location coordinates instead of defaults
-                          const data = await fetchPatmaPropertyData(
-                            locationSearch.latitude,
-                            locationSearch.longitude,
-                            locationSearch.radius,
-                            undefined, // Use default filters
-                            true // Bypass cache
-                          );
-                          console.log("Refreshed PaTMa Property Data:", data);
-                          
-                          if (data && Array.isArray(data)) {
-                            setPatmaProperties(data);
-                            
-                            // Convert PaTMa properties to the PropertyListing format
-                            const mappedProperties = data.map((patmaProperty) => {
-                              return mapPatmaToPropertyListing(patmaProperty);
-                            });
-                            
-                            // Update properties state with ONLY the mapped PaTMa properties
-                            if (mappedProperties.length > 0) {
-                              setProperties(mappedProperties);
-                              toast.success(`Found ${mappedProperties.length} properties near ${locationSearch.location || "current location"}`);
-                            } else {
-                              toast.info(`No properties found near ${locationSearch.location || "current location"}`);
-                            }
-                          }
-                        } catch (error) {
-                          console.error("Error fetching PaTMa data:", error);
-                          toast.error("Failed to fetch property data from PaTMa");
-                        } finally {
-                          setLoading(false);
-                        }
-                      };
-                      
-                      fetchData();
-                    }}
-                  >
-                    Refresh Property Data
-                  </Button>
-                </div>
-              }
-            </CardContent>
-          </Card>
-        </div>
-  
+
         {selectedProperty && (
           <PropertyProposalDialog
             property={selectedProperty}
-            open={isProposalDialogOpen}
+            open={!!selectedProperty}
             onOpenChange={(open) => {
-              setIsProposalDialogOpen(open);
               if (!open) setSelectedProperty(null);
             }}
           />

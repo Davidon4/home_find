@@ -14,7 +14,7 @@ import {
   Ruler, 
   Building2, 
   Calendar,
-  Search,
+  Filter,
   MapPin,
   Loader2,
   X,
@@ -317,8 +317,20 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
     toast.dismiss(loadingToast); // Dismiss loading toast once done
     
     if (!foundLocation && !isPostcodeAttempt) {
-        // Explicitly inform user if general search also failed after postcode check failed/skipped
-        toast.error(`Could not find coordinates for "${searchTerm}". Please try again.`);
+      // Explicitly inform user if general search also failed after postcode check failed/skipped
+      toast.error(`Could not find coordinates for "${searchTerm}". Please try again.`);
+      return; // Don't trigger search if we don't have coordinates
+    }
+
+    // Only trigger search if we have valid coordinates
+    if (filters.latitude && filters.longitude && onSearch) {
+      console.log("Triggering search with coordinates:", {
+        latitude: filters.latitude,
+        longitude: filters.longitude
+      });
+      onSearch();
+    } else {
+      toast.error("Unable to determine location coordinates. Please try a different search term.");
     }
   };
 
@@ -456,18 +468,6 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
                 </div>
               )}
             </div>
-            <Button 
-              onClick={handleLocationSearch} 
-              disabled={isSearching}
-              className="flex items-center justify-center filter-panel-search-button"
-            >
-              {isSearching ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Search className="h-4 w-4" />
-              )}
-              Search
-            </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
             Enter any UK city, town, postcode, or area name to search for properties
