@@ -527,7 +527,6 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
               <SelectItem value="Detached">Detached</SelectItem>
               <SelectItem value="Semi-detached">Semi-detached</SelectItem>
               <SelectItem value="Terraced">Terraced</SelectItem>
-              <SelectItem value="Flat">Flat</SelectItem>
               <SelectItem value="Bungalow">Bungalow</SelectItem>
             </SelectContent>
           </Select>

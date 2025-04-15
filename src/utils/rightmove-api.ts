@@ -449,22 +449,39 @@ export const fetchPatmaPropertyData = async (
   longitude = -0.127758, 
   radius = 5,
   filters = {
-    minBedrooms: 3,
+    minBedrooms: 1,
+    maxBedrooms: 3,
     minBathrooms: 2,
     minPrice: 70000,
     maxPrice: 275000,
-    propertyTypes: ['semi-detached', 'detached', 'terraced'],
+    propertyTypes: ['semi-detached', 'detached', 'terraced', 'bungalow'],
     includeKeywords: ['cash only', 'modernization', 'modernization needed'],
-    excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction']
+    excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment']
   },
   bypassCache = false
 ) => {
+  // Validate coordinates
+  if (!latitude || !longitude) {
+    console.error('Invalid coordinates:', { latitude, longitude });
+    throw new Error('Valid latitude and longitude are required');
+  }
+
   // Check cache first unless bypassing
   if (!bypassCache) {
     const cachedData = getCachedProperties(latitude, longitude, radius);
     if (cachedData) {
       console.log('Using cached property data');
-      return cachedData;
+      // Filter cached data to ensure bedroom constraints and property types
+      const filteredCachedData = cachedData.filter(property => {
+        const bedrooms = property.bedrooms || 0;
+        const propertyType = (property.property_type || '').toLowerCase();
+        return bedrooms >= filters.minBedrooms && 
+               bedrooms <= filters.maxBedrooms && 
+               !propertyType.includes('flat') && 
+               !propertyType.includes('apartment');
+      });
+      console.log(`Filtered cached data from ${cachedData.length} to ${filteredCachedData.length} properties`);
+      return filteredCachedData;
     }
   }
 
@@ -485,6 +502,7 @@ export const fetchPatmaPropertyData = async (
     }
     
     console.log("Searching for property types:", validPropertyTypes);
+    console.log("Searching for properties with bedrooms:", filters.minBedrooms, "to", filters.maxBedrooms);
     console.log("Looking for keywords:", filters.includeKeywords ? filters.includeKeywords.join(', ') : 'None');
     
     // Make a separate request for each property type
@@ -506,6 +524,7 @@ export const fetchPatmaPropertyData = async (
             page: 1,
             page_size: 100,
             min_bedrooms: filters.minBedrooms,
+            max_bedrooms: filters.maxBedrooms,
             min_bathrooms: filters.minBathrooms,
             min_price: filters.minPrice,
             max_price: filters.maxPrice,
@@ -547,6 +566,22 @@ export const fetchPatmaPropertyData = async (
     
     // Apply additional filters to ensure property requirements are met
     let filteredResults = allResults;
+    
+    // Filter by property type - exclude flats and apartments
+    filteredResults = filteredResults.filter(property => {
+      const propertyType = (property.property_type || '').toLowerCase();
+      return !propertyType.includes('flat') && !propertyType.includes('apartment');
+    });
+    
+    console.log(`After excluding flats/apartments: ${filteredResults.length} properties remain`);
+    
+    // Filter by bedrooms to ensure API filters are working correctly
+    filteredResults = filteredResults.filter(property => {
+      const bedrooms = property.bedrooms || 0;
+      return bedrooms >= filters.minBedrooms && bedrooms <= filters.maxBedrooms;
+    });
+    
+    console.log(`After bedroom filtering (${filters.minBedrooms}-${filters.maxBedrooms} beds): ${filteredResults.length} properties remain`);
     
     // Filter by price to ensure API filters are working correctly
     filteredResults = filteredResults.filter(property => {

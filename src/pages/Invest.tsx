@@ -133,27 +133,58 @@ const propertyTypeImages = {
   flat: [
     "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688",
     "https://images.unsplash.com/photo-1551361415-69c87624334f",
-    "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2"
+    "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2",
+    "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00",
+    "https://images.unsplash.com/photo-1493809842364-78817add7ffb",
+    "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267"
   ],
   house: [
     "https://images.unsplash.com/photo-1518780664697-55e3ad937233",
     "https://images.unsplash.com/photo-1568605114967-8130f3a36994",
-    "https://images.unsplash.com/photo-1570129477492-45c003edd2be"
+    "https://images.unsplash.com/photo-1570129477492-45c003edd2be",
+    "https://images.unsplash.com/photo-1583608205776-bfd35f0d9f83",
+    "https://images.unsplash.com/photo-1523217582562-09d0def993a6",
+    "https://images.unsplash.com/photo-1592595896616-c37162298647"
   ],
   detached: [
     "https://images.unsplash.com/photo-1564013799919-ab600027ffc6",
     "https://images.unsplash.com/photo-1512917774080-9991f1c4c750",
-    "https://images.unsplash.com/photo-1549517045-bc93de075e53"
+    "https://images.unsplash.com/photo-1549517045-bc93de075e53",
+    "https://images.unsplash.com/photo-1600585154340-be6161a56a0c",
+    "https://images.unsplash.com/photo-1576941089067-2de3c901e126",
+    "https://images.unsplash.com/photo-1598228723793-52759bba239c"
   ],
   terrace: [
     "https://images.unsplash.com/photo-1625602812206-5ec545ca1231",
     "https://images.unsplash.com/photo-1602343168117-bb8ffe3e2e9f",
-    "https://images.unsplash.com/photo-1605276374104-dee2a0ed3cd6"
+    "https://images.unsplash.com/photo-1605276374104-dee2a0ed3cd6",
+    "https://images.unsplash.com/photo-1584738766473-61c083514bf4",
+    "https://images.unsplash.com/photo-1600585154526-990dced4db0d",
+    "https://images.unsplash.com/photo-1605146768851-eda79da39897"
+  ],
+  semi: [
+    "https://images.unsplash.com/photo-1583608205776-bfd35f0d9f83",
+    "https://images.unsplash.com/photo-1600047509358-9dc75507daeb",
+    "https://images.unsplash.com/photo-1600566752355-35792bedcfea",
+    "https://images.unsplash.com/photo-1600047509807-ba8f99d2cdde",
+    "https://images.unsplash.com/photo-1600585154340-be6161a56a0c",
+    "https://images.unsplash.com/photo-1602941525421-8f8b81d3edbb"
+  ],
+  bungalow: [
+    "https://images.unsplash.com/photo-1576941089067-2de3c901e126",
+    "https://images.unsplash.com/photo-1568092806323-8ea26e271fb5",
+    "https://images.unsplash.com/photo-1565953554309-d181306db7d5",
+    "https://images.unsplash.com/photo-1593696140826-c58b021acf8b",
+    "https://images.unsplash.com/photo-1570793005386-840846445fed",
+    "https://images.unsplash.com/photo-1597047084897-51e81819a499"
   ],
   commercial: [
     "https://images.unsplash.com/photo-1497366811353-6870744d04b2",
     "https://images.unsplash.com/photo-1577979536252-88d631d6d36d",
-    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab"
+    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab",
+    "https://images.unsplash.com/photo-1478860409698-8707f313ee8b",
+    "https://images.unsplash.com/photo-1556156653-e5a7676af8e4",
+    "https://images.unsplash.com/photo-1524397057410-1e775ed476f3"
   ]
 };
 
@@ -166,8 +197,12 @@ const getPropertyImage = (propertyType: string, address: string): string => {
   if (type.includes('flat') || type.includes('apartment') || 
       address?.toLowerCase().includes('flat') || address?.toLowerCase().includes('apartment')) {
     category = 'flat';
+  } else if (type.includes('bungalow') || address?.toLowerCase().includes('bungalow')) {
+    category = 'bungalow';
   } else if (type.includes('detached') || address?.toLowerCase().includes('detached')) {
     category = 'detached';
+  } else if (type.includes('semi') || address?.toLowerCase().includes('semi')) {
+    category = 'semi';
   } else if (type.includes('terrace') || address?.toLowerCase().includes('terrace') || 
              address?.toLowerCase().includes('row')) {
     category = 'terrace';
@@ -227,26 +262,57 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
       property.description?.toLowerCase().includes(keyword.toLowerCase())
     );
   
+  // Handle image loading errors
+  const [imageError, setImageError] = useState(false);
+  
+  // Get a fallback image based on property type if the main image fails
+  const getFallbackImage = () => {
+    const type = property.property_type?.toLowerCase() || '';
+    let category = 'house';
+    
+    if (type.includes('flat') || type.includes('apartment')) {
+      category = 'flat';
+    } else if (type.includes('bungalow')) {
+      category = 'bungalow';
+    } else if (type.includes('detached')) {
+      category = 'detached';
+    } else if (type.includes('semi')) {
+      category = 'semi';
+    } else if (type.includes('terrace')) {
+      category = 'terrace';
+    }
+    
+    const images = propertyTypeImages[category as keyof typeof propertyTypeImages] || propertyTypeImages.house;
+    // Use a different random method to get a different image than the original
+    return images[Math.floor(Math.random() * images.length)];
+  };
+  
   return (
     <Card 
       className={`overflow-hidden cursor-pointer transition-all hover:shadow-lg ${hasHighlightedKeywords ? 'ring-2 ring-yellow-400 dark:ring-yellow-600' : ''}`}
       onClick={onClick}
     >
       <div className="aspect-video relative overflow-hidden">
-        {property.image_url ? (
+        {property.image_url && !imageError ? (
           <img 
             src={property.image_url} 
             alt={property.address} 
             className="w-full h-full object-cover"
             onError={(e) => {
-              // Fallback to placeholder if image fails to load
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/e2e8f0/1e293b?text=No+Image+Available";
+              setImageError(true);
+              // Don't set src here, we'll use a different approach when imageError is true
             }}
           />
         ) : (
-          <div className="w-full h-full bg-muted flex items-center justify-center">
-            <Home className="h-12 w-12 text-muted-foreground" />
-          </div>
+          <img
+            src={getFallbackImage()}
+            alt={property.address}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              // Last resort fallback if even our type-specific image fails
+              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/e2e8f0/1e293b?text=Property+Image";
+            }}
+          />
         )}
         
         {/* Investment opportunity badge for highlighted properties */}
@@ -350,8 +416,8 @@ const Invest = () => {
     propertyType: "",
     minPrice: "70000",
     maxPrice: "275000",
-    minBedrooms: "3",
-    maxBedrooms: "",
+    minBedrooms: "1",
+    maxBedrooms: "3",
     minBathrooms: "2",
     maxBathrooms: "",
     minSquareFeet: "",
@@ -459,8 +525,8 @@ const Invest = () => {
       propertyType: "",
       minPrice: "70000",
       maxPrice: "275000",
-      minBedrooms: "3",
-      maxBedrooms: "",
+      minBedrooms: "1",
+      maxBedrooms: "3",
       minBathrooms: "2",
       maxBathrooms: "",
       minSquareFeet: "",
@@ -491,19 +557,30 @@ const Invest = () => {
         filters.longitude,
         filters.radius,
         {
-          minBedrooms: parseInt(filters.minBedrooms) || 3,
+          minBedrooms: parseInt(filters.minBedrooms) || 1,
+          maxBedrooms: parseInt(filters.maxBedrooms) || 3,
           minBathrooms: parseInt(filters.minBathrooms) || 2,
           minPrice: parseInt(filters.minPrice) || 70000,
           maxPrice: parseInt(filters.maxPrice) || 275000,
-          propertyTypes: filters.propertyType ? [filters.propertyType.toLowerCase()] : ['semi-detached', 'detached', 'terraced'],
+          propertyTypes: filters.propertyType ? 
+            [filters.propertyType.toLowerCase()] : 
+            ['semi-detached', 'detached', 'terraced', 'bungalow'],
           includeKeywords: ['cash only', 'modernization', 'modernization needed'],
-          excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction']
+          excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment']
         }
       );
 
       if (patmaResults && Array.isArray(patmaResults)) {
-        setPatmaProperties(patmaResults);
-        const mappedProperties = patmaResults.map(mapPatmaToPropertyListing);
+        // Filter to ensure only properties with 1-3 bedrooms are shown
+        const filteredResults = patmaResults.filter(property => {
+          const bedrooms = property.bedrooms || 0;
+          return bedrooms >= 1 && bedrooms <= 3;
+        });
+        
+        console.log(`Filtered from ${patmaResults.length} to ${filteredResults.length} properties with 1-3 bedrooms`);
+        
+        setPatmaProperties(filteredResults);
+        const mappedProperties = filteredResults.map(mapPatmaToPropertyListing);
         setProperties(mappedProperties);
         
         if (mappedProperties.length > 0) {
@@ -559,14 +636,19 @@ const Invest = () => {
         // For detached houses
         if (price < 150000) actualBedrooms = 2;
         else if (price < 230000) actualBedrooms = 3;
-        else if (price < 300000) actualBedrooms = 4;
-        else actualBedrooms = 5;
+        else actualBedrooms = 3; // Cap at 3 bedrooms
       } else {
         // For terraced, semi-detached, and others
         if (price < 120000) actualBedrooms = 2;
         else if (price < 200000) actualBedrooms = 3;
-        else actualBedrooms = 4;
+        else actualBedrooms = 3; // Cap at 3 bedrooms
       }
+    }
+    
+    // Ensure bedrooms are within our 1-3 range regardless of API data or estimates
+    if (actualBedrooms !== null) {
+      if (actualBedrooms < 1) actualBedrooms = 1;
+      if (actualBedrooms > 3) actualBedrooms = 3;
     }
     
     // Generate fallback bathroom count based on property type and bedrooms
