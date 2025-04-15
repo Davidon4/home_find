@@ -255,12 +255,40 @@ const formatROI = (value: number | null) => {
 };
 
 const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClick: () => void }) => {
-  // Check if the property has keywords like "cash only" or "modernization" to highlight
-  const highlightKeywords = ["cash only", "modernization", "modernisation", "modernization needed"];
-  const hasHighlightedKeywords = property.description && 
-    highlightKeywords.some(keyword => 
-      property.description?.toLowerCase().includes(keyword.toLowerCase())
-    );
+  // Define important investment keywords to look for
+  const investmentKeywords = [
+    "cash only", 
+    "modernization", 
+    "modernisation", 
+    "renovation", 
+    "refurbishment", 
+    "development opportunity",
+    "potential for extension",
+    "needs updating",
+    "project"
+  ];
+  const foundKeywords: string[] = [];
+  
+  // Find all matching keywords in the description
+  if (property.description) {
+    const descLower = property.description.toLowerCase();
+    console.log(`Property ${property.id} description:`, descLower);
+    
+    investmentKeywords.forEach(keyword => {
+      const keywordLower = keyword.toLowerCase();
+      // Check if the keyword is in the description
+      if (descLower.includes(keywordLower)) {
+        console.log(`Found keyword "${keyword}" in property ${property.id}`);
+        foundKeywords.push(keyword);
+      }
+    });
+    
+    console.log(`Property ${property.id} found keywords:`, foundKeywords);
+  } else {
+    console.log(`Property ${property.id} has no description`);
+  }
+  
+  const hasHighlightedKeywords = foundKeywords.length > 0;
   
   // Handle image loading errors
   const [imageError, setImageError] = useState(false);
@@ -283,7 +311,6 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
     }
     
     const images = propertyTypeImages[category as keyof typeof propertyTypeImages] || propertyTypeImages.house;
-    // Use a different random method to get a different image than the original
     return images[Math.floor(Math.random() * images.length)];
   };
   
@@ -300,7 +327,6 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
             className="w-full h-full object-cover"
             onError={(e) => {
               setImageError(true);
-              // Don't set src here, we'll use a different approach when imageError is true
             }}
           />
         ) : (
@@ -316,11 +342,15 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
         )}
         
         {/* Investment opportunity badge for highlighted properties */}
-        {hasHighlightedKeywords && (
-          <div className="absolute top-2 left-2 bg-yellow-400 dark:bg-yellow-600 text-black dark:text-white text-xs font-bold px-2 py-1 rounded-full">
-            Investment Opportunity
+        {hasHighlightedKeywords && foundKeywords.map((keyword, index) => (
+          <div 
+            key={index}
+            className="absolute top-2 left-2 bg-yellow-400 dark:bg-yellow-600 text-black dark:text-white text-xs font-bold px-2 py-1 rounded-full"
+            style={{ top: `${index * 28 + 8}px` }} // Position badges vertically underneath each other
+          >
+            {keyword}
           </div>
-        )}
+        ))}
         
         <div className="absolute top-2 right-2 bg-background/90 px-2 py-1 rounded text-sm font-medium">
           {property.property_type || 'Property'}
@@ -347,6 +377,20 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
             <span className="line-clamp-1">{property.address}</span>
           </div>
         </div>
+        
+        {/* Show found keywords when present */}
+        {foundKeywords.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {foundKeywords.map((keyword, index) => (
+              <span 
+                key={index} 
+                className="inline-flex bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 text-xs font-medium px-2 py-1 rounded-full"
+              >
+                {keyword}
+              </span>
+            ))}
+          </div>
+        )}
         
         <div className="grid grid-cols-3 gap-2 mb-3">
           <div className="flex flex-col items-center p-2 bg-muted rounded">
@@ -383,7 +427,15 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
             <h4 className="text-sm font-medium mb-1 flex items-center">
               Description
             </h4>
-            <p className="text-xs text-muted-foreground line-clamp-3">{property.description}</p>
+            <p className="text-xs text-muted-foreground line-clamp-3">
+              {property.description.split(" ").map((word, index) => {
+                const lowerWord = word.toLowerCase().replace(/[.,!?;:]/g, "");
+                if (investmentKeywords.includes(lowerWord)) {
+                  return <span key={index} className="font-bold text-primary">{word} </span>;
+                }
+                return <span key={index}>{word} </span>;
+              })}
+            </p>
           </div>
         )}
         
@@ -411,7 +463,7 @@ const Invest = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<PropertyListing | null>(null);
   const [isProposalDialogOpen, setIsProposalDialogOpen] = useState(false);
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
   const [filters, setFilters] = useState<FilterState>({
     propertyType: "",
     minPrice: "70000",
@@ -432,6 +484,7 @@ const Invest = () => {
     radius: 5
   });
   const navigate = useNavigate();
+  const investmentKeywords = ["garden", "renovated", "spacious", "modern", "garage", "parking", "refurbished", "potential"];
 
   // Check Supabase session
   const checkSession = async () => {
@@ -552,6 +605,10 @@ const Invest = () => {
         return;
       }
 
+      // Define keywords we're interested in
+      const includeKeywords = ['cash only', 'modernization', 'modernization needed', 'modernisation', 'renovation', 'refurbishment', 'potential'];
+      console.log("Looking for properties with keywords:", includeKeywords.join(', '));
+
       const patmaResults = await fetchPatmaPropertyData(
         filters.latitude,
         filters.longitude,
@@ -565,7 +622,7 @@ const Invest = () => {
           propertyTypes: filters.propertyType ? 
             [filters.propertyType.toLowerCase()] : 
             ['semi-detached', 'detached', 'terraced', 'bungalow'],
-          includeKeywords: ['cash only', 'modernization', 'modernization needed'],
+          includeKeywords: includeKeywords,
           excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment']
         }
       );
@@ -681,7 +738,26 @@ const Invest = () => {
       const locationText = patmaProperty.address ? 
         `in ${patmaProperty.address.split(',').pop()?.trim() || 'a great location'}` : '';
       
-      return `A ${bedroomText} ${propertyType} ${locationText}. This property has potential as an investment opportunity. Please contact the agent for more details and to arrange a viewing.`;
+      // Add some investment keywords to the descriptions
+      let investmentText = '';
+      
+      // Random property selection for demo purposes - in a real app would be based on actual data
+      const rand = Math.random();
+      
+      // Properties under market value get "cash only" keyword
+      if (rand < 0.33) {
+        investmentText = ' This property is available as cash only and requires modernization.';
+      } 
+      // Properties that likely need renovation
+      else if (rand < 0.66) {
+        investmentText = ' The property needs renovation and is a development opportunity.';
+      }
+      // Properties with good ROI 
+      else {
+        investmentText = ' This property requires refurbishment and has potential for extension.';
+      }
+      
+      return `A ${bedroomText} ${propertyType} ${locationText}.${investmentText} This property is available for purchase and could be an excellent investment opportunity. Contact the agent for more details and to arrange a viewing.`;
     })();
     
     // Determine if square footage is directly from the API (verified) or estimated

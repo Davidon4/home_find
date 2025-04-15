@@ -596,6 +596,28 @@ export const fetchPatmaPropertyData = async (
     
     // Filter to INCLUDE properties with specific keywords
     if (filters.includeKeywords && filters.includeKeywords.length > 0) {
+      console.log(`Looking for properties with keywords: ${filters.includeKeywords.join(', ')}`);
+      
+      // First, check if any properties have our keywords
+      const keywordMatches = filteredResults.map(property => {
+        const addressLower = (property.address || '').toLowerCase();
+        const descriptionLower = (property.description || '').toLowerCase();
+        
+        // Find all keywords in this property
+        const matchedKeywords = filters.includeKeywords.filter(keyword => 
+          addressLower.includes(keyword.toLowerCase()) || 
+          descriptionLower.includes(keyword.toLowerCase())
+        );
+        
+        return {
+          id: property.id,
+          address: property.address,
+          matchedKeywords
+        };
+      }).filter(match => match.matchedKeywords.length > 0);
+      
+      console.log("Properties with keyword matches:", keywordMatches);
+      
       const keywordFilteredResults = filteredResults.filter(property => {
         const addressLower = (property.address || '').toLowerCase();
         const descriptionLower = (property.description || '').toLowerCase();
