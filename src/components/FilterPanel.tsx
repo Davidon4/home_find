@@ -39,11 +39,12 @@ export interface FilterState {
   latitude?: number;
   longitude?: number;
   radius?: number;
+  findPropertiesInBadCondition?: boolean;
 }
 
 interface FilterPanelProps {
   filters: FilterState;
-  onFilterChange: (key: keyof FilterState, value: string | string[] | number) => void;
+  onFilterChange: (key: keyof FilterState, value: string | string[] | number | boolean) => void;
   onClear: () => void;
   onSearch?: () => void;
 }
@@ -530,6 +531,30 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
               <SelectItem value="Bungalow">Bungalow</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        <Separator />
+        
+        {/* Property Condition Option */}
+        <div className="space-y-2">
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="findPropertiesInBadCondition"
+              checked={!!filters.findPropertiesInBadCondition}
+              onChange={(e) => onFilterChange('findPropertiesInBadCondition', e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <Label 
+              htmlFor="findPropertiesInBadCondition"
+              className="text-sm font-medium text-gray-700 cursor-pointer"
+            >
+              Find properties needing renovation
+            </Label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Prioritize properties with renovation-related planning applications
+          </p>
         </div>
 
         <Separator />

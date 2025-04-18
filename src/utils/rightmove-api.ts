@@ -441,14 +441,114 @@ export async function searchRightmoveProperties(searchTerm: string): Promise<Map
 }
 
 /**
+ * Fetch planning applications that indicate properties in poor condition
+ */
+export const fetchPropertiesWithPlanning = async (
+  latitude: number,
+  longitude: number,
+  radius = 5
+) => {
+  const apiKey = import.meta.env.VITE_ACCESS_TOKEN;
+  
+  if (!apiKey) {
+    console.error('API Key is missing');
+    return [];
+  }
+  
+  if (!latitude || !longitude) {
+    console.error('Invalid coordinates:', { latitude, longitude });
+    return [];
+  }
+  
+  try {
+    console.log('Fetching properties with planning applications indicating renovation needs');
+    
+    const response = await axios.get('https://app.patma.co.uk/api/prospector/v1/planning/', {
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      params: {
+        api_key: apiKey,
+        lat: latitude,
+        long: longitude,
+        radius: radius
+      }
+    });
+    
+    if (response.data && response.data.status === 'success') {
+      const applications = response.data.data?.planning_applications || [];
+      console.log(`Found ${applications.length} planning applications in the area`);
+      
+      // Keywords that suggest property renovation/poor condition
+      const renovationKeywords = [
+        'renovation', 'refurbishment', 'restoration', 'repair', 'rebuild',
+        'modernisation', 'modernization', 'extension', 'conversion',
+        'dilapidated', 'structural', 'demolition', 'rebuild', 'poor condition',
+        'alteration', 'remodelling', 're modelling', 'demolition', 
+        'enclosure', 'glass floor', 'lightwell', 'rooflight',
+        'partial demolition', 'substantial demolition', 'replacing',
+        'replacement', 'removing', 'installation', 'alterations'
+      ];
+      
+      // Filter properties with renovation-related planning applications
+      const propertiesNeedingWork = applications.filter(app => {
+        const description = (app.description || '').toLowerCase();
+        // Count how many keywords match
+        const matchingKeywords = renovationKeywords.filter(keyword => 
+          description.includes(keyword.toLowerCase())
+        );
+        
+        // If any keywords match, consider it a property needing work
+        return matchingKeywords.length > 0;
+      });
+      
+      console.log(`Found ${propertiesNeedingWork.length} properties with renovation-related planning applications`);
+      
+      return propertiesNeedingWork.map(app => ({
+        address: app.address,
+        postcode: app.postcode,
+        description: app.description,
+        reference: app.reference,
+        uprn: app.uprn,
+        lat: app.lat,
+        lng: app.lng,
+        planningType: app.type,
+        status: app.decision_status,
+        dateReceived: app.date_received
+      }));
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Error fetching planning data:', error);
+    return [];
+  }
+};
+
+/**
  * PaTMa API integration
  * Based on the API documentation with endpoint: /api/prospector/{version}/list-property/
  */
+
+// Define a proper interface for the filters
+interface PatmaPropertyFilters {
+  minBedrooms: number;
+  maxBedrooms: number;
+  minBathrooms: number;
+  minPrice: number;
+  maxPrice: number;
+  propertyTypes: string[];
+  includeKeywords: string[];
+  excludeKeywords: string[];
+  findPropertiesInBadCondition?: boolean; // Optional to maintain backward compatibility
+}
+
 export const fetchPatmaPropertyData = async (
   latitude = 51.507351, 
   longitude = -0.127758, 
   radius = 5,
-  filters = {
+  filters: PatmaPropertyFilters = {
     minBedrooms: 1,
     maxBedrooms: 3,
     minBathrooms: 2,
@@ -456,7 +556,8 @@ export const fetchPatmaPropertyData = async (
     maxPrice: 275000,
     propertyTypes: ['semi-detached', 'detached', 'terraced', 'bungalow'],
     includeKeywords: ['cash only', 'modernization', 'modernization needed'],
-    excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment']
+    excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment'],
+    findPropertiesInBadCondition: true // New flag to indicate we want properties in bad condition
   },
   bypassCache = false
 ) => {
@@ -489,6 +590,13 @@ export const fetchPatmaPropertyData = async (
   console.log("Using API Key:", apiKey);
   
   try {
+    // If looking for properties in bad condition, use planning application data
+    let propertiesWithPlanning = [];
+    if (filters.findPropertiesInBadCondition) {
+      propertiesWithPlanning = await fetchPropertiesWithPlanning(latitude, longitude, radius);
+      console.log(`Found ${propertiesWithPlanning.length} properties with renovation planning applications`);
+    }
+    
     // Make separate API calls for each property type to overcome the API limitation
     const allResults = [];
     
@@ -593,6 +701,48 @@ export const fetchPatmaPropertyData = async (
     });
     
     console.log(`After price filtering (£${filters.minPrice/1000}K-£${filters.maxPrice/1000}K): ${filteredResults.length} properties remain`);
+    
+    // If looking for properties in bad condition, prioritize properties with planning applications
+    if (filters.findPropertiesInBadCondition && propertiesWithPlanning.length > 0) {
+      console.log('Prioritizing properties with renovation planning applications');
+      
+      // Find properties that match by postcode or address
+      const planningPostcodes = new Set(propertiesWithPlanning.map(p => p.postcode));
+      const prioritizedResults = filteredResults.filter(property => {
+        // Extract postcode from property address
+        const postcodeMatch = property.address?.match(/([A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2})/i);
+        const propertyPostcode = postcodeMatch ? postcodeMatch[1] : null;
+        
+        // Check if this property's postcode is in our planning applications
+        return propertyPostcode && planningPostcodes.has(propertyPostcode);
+      });
+      
+      console.log(`Found ${prioritizedResults.length} properties matching planning applications`);
+      
+      // If we found matches, prioritize them by putting them first in the results
+      if (prioritizedResults.length > 0) {
+        // Remove the prioritized properties from the filtered results to avoid duplicates
+        const remainingResults = filteredResults.filter(property => {
+          const postcodeMatch = property.address?.match(/([A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2})/i);
+          const propertyPostcode = postcodeMatch ? postcodeMatch[1] : null;
+          return !(propertyPostcode && planningPostcodes.has(propertyPostcode));
+        });
+        
+        // Add a flag to properties with planning applications
+        const enhancedPrioritizedResults = prioritizedResults.map(property => ({
+          ...property,
+          has_planning: true,
+          planning_details: propertiesWithPlanning.find(p => {
+            const postcodeMatch = property.address?.match(/([A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2})/i);
+            const propertyPostcode = postcodeMatch ? postcodeMatch[1] : null;
+            return p.postcode === propertyPostcode;
+          })
+        }));
+        
+        // Combine prioritized results with remaining results
+        filteredResults = [...enhancedPrioritizedResults, ...remainingResults];
+      }
+    }
     
     // Filter to INCLUDE properties with specific keywords
     if (filters.includeKeywords && filters.includeKeywords.length > 0) {

@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Home, MapPin, Search, Filter } from "lucide-react";
+import { Home, MapPin, Search, Filter, Bed, Bath, Ruler } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { Session } from "@supabase/supabase-js"
@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import axios from 'axios';
 import { FilterPanel, FilterState } from "@/components/FilterPanel";
 import { Spinner } from "@/components/ui/spinner";
+import { fetchPropertyDetails } from "@/utils/rightmove-api";
 
 interface PropertyListing {
   id: string;
@@ -56,6 +57,14 @@ interface PropertyListing {
     energy_rating: string;
     council_tax_band: string;
     property_features: string[];
+    planning_applications?: Array<{
+      description: string;
+      status: string;
+      date_submitted: string;
+      reference?: string;
+      decision?: string;
+      url?: string;
+    }>;
   };
   market_trends?: {
     appreciation_rate: number;
@@ -120,6 +129,10 @@ interface PatmaProperty {
   uprn?: string;
   built_form?: string;
   habitable_rooms?: number;
+  planning_details?: {
+    description: string;
+  };
+  has_planning?: boolean;
 }
 
 const placeholderImages = [
@@ -254,44 +267,77 @@ const formatROI = (value: number | null) => {
   }).format(value / 100);
 };
 
-const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClick: () => void }) => {
-  // Define important investment keywords to look for
-  const investmentKeywords = [
-    "cash only", 
-    "modernization", 
-    "modernisation", 
-    "renovation", 
-    "refurbishment", 
-    "development opportunity",
-    "potential for extension",
-    "needs updating",
-    "project"
-  ];
-  const foundKeywords: string[] = [];
+// Helper function to estimate square footage based on property type and bedrooms
+const estimateSquareFootage = (propertyType: string | undefined, bedrooms: number | undefined): number => {
+  // Default values if property type or bedrooms are unknown
+  if (!propertyType || !bedrooms) return 0;
   
-  // Find all matching keywords in the description
-  if (property.description) {
-    const descLower = property.description.toLowerCase();
-    console.log(`Property ${property.id} description:`, descLower);
-    
-    investmentKeywords.forEach(keyword => {
-      const keywordLower = keyword.toLowerCase();
-      // Check if the keyword is in the description
-      if (descLower.includes(keywordLower)) {
-        console.log(`Found keyword "${keyword}" in property ${property.id}`);
-        foundKeywords.push(keyword);
-      }
-    });
-    
-    console.log(`Property ${property.id} found keywords:`, foundKeywords);
-  } else {
-    console.log(`Property ${property.id} has no description`);
+  const propertyTypeLower = propertyType.toLowerCase();
+  
+  // Base square footage estimates by property type
+  const baseFootage = {
+    flat: 600,
+    apartment: 600,
+    maisonette: 750,
+    house: 850,
+    terrace: 800,
+    terraced: 800,
+    semi: 900,
+    "semi-detached": 900,
+    detached: 1200,
+    bungalow: 900,
+    cottage: 750,
+    land: 0,
+    commercial: 1500,
+  };
+  
+  // Find the matching property type or use default
+  let base = 800; // default if no match
+  
+  for (const [type, footage] of Object.entries(baseFootage)) {
+    if (propertyTypeLower.includes(type)) {
+      base = footage;
+      break;
+    }
   }
   
-  const hasHighlightedKeywords = foundKeywords.length > 0;
+  // Adjust for number of bedrooms
+  // Each bedroom after the first adds approximately 200-300 sq ft
+  const bedroomAdjustment = bedrooms > 1 ? (bedrooms - 1) * 250 : 0;
   
+  return base + bedroomAdjustment;
+};
+
+const highlightKeywords = [
+  "garden", "renovated", "spacious", "modern", "garage", "parking", "refurbished", "potential",
+  "planning application", "extension", "renovation", "development", "modernization", "modernisation"
+];
+
+const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClick: () => void }) => {
+  // Function to highlight keywords in description
+  const highlightText = (text: string) => {
+    if (!text) return "";
+    
+    let result = text;
+    
+    // Highlight keywords with a yellow background
+    highlightKeywords.forEach(keyword => {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+      result = result.replace(regex, match => `<span class="bg-yellow-100 dark:bg-yellow-900">${match}</span>`);
+    });
+    
+    return result;
+  };
+
+  // Check for planning information
+  const hasPlanningDetails = property.description?.toLowerCase().includes('planning application') || property.property_details?.planning_applications?.length > 0;
+
   // Handle image loading errors
   const [imageError, setImageError] = useState(false);
+  const [showPlanningDetails, setShowPlanningDetails] = useState(false);
+
+  // Get planning details if available
+  const planningDetails = property.property_details?.planning_applications || [];
   
   // Get a fallback image based on property type if the main image fails
   const getFallbackImage = () => {
@@ -315,144 +361,110 @@ const PropertyCard = ({ property, onClick }: { property: PropertyListing, onClic
   };
   
   return (
-    <Card 
-      className={`overflow-hidden cursor-pointer transition-all hover:shadow-lg ${hasHighlightedKeywords ? 'ring-2 ring-yellow-400 dark:ring-yellow-600' : ''}`}
+    <div
+      className="group rounded-lg border p-4 shadow-sm transition-all hover:shadow-md cursor-pointer bg-white dark:bg-gray-800"
       onClick={onClick}
     >
-      <div className="aspect-video relative overflow-hidden">
-        {property.image_url && !imageError ? (
-          <img 
-            src={property.image_url} 
-            alt={property.address} 
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              setImageError(true);
+      <div className="relative aspect-[4/3] overflow-hidden rounded-md mb-4">
+        {property.image_url ? (
+          <img
+            src={property.image_url}
+            alt={property.address}
+            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+            onError={e => {
+              const target = e.target as HTMLImageElement;
+              target.onerror = null;
+              target.src = getFallbackImage();
             }}
           />
         ) : (
           <img
             src={getFallbackImage()}
-            alt={property.address}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              // Last resort fallback if even our type-specific image fails
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/e2e8f0/1e293b?text=Property+Image";
-            }}
+            alt="Property"
+            className="h-full w-full object-cover"
+          />
+        )}
+        <div className="absolute top-2 right-2 flex flex-wrap gap-1">
+          {property.listing_type === "auction" && (
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+              Auction
+            </span>
+          )}
+          {property.source && (
+            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-800">
+              {property.source}
+            </span>
+          )}
+          {hasPlanningDetails && (
+            <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800">
+              Planning
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <h3 className="font-semibold text-lg truncate">{property.address}</h3>
+        <div className="flex justify-between">
+          <span className="text-lg font-bold">{formatCurrency(property.price)}</span>
+          <span className="text-sm text-green-600">{formatROI(property.roi_estimate)}</span>
+        </div>
+        <div className="flex items-center space-x-4 text-sm">
+          <span className="flex items-center">
+            <Bed className="mr-1 h-4 w-4 text-gray-400" />
+            {property.bedrooms}
+            {property.bedrooms_verified === false && <span className="text-xs text-gray-400 ml-1">(est.)</span>}
+          </span>
+          {property.bathrooms && (
+            <span className="flex items-center">
+              <Bath className="mr-1 h-4 w-4 text-gray-400" />
+              {property.bathrooms}
+              {property.bathrooms_verified === false && <span className="text-xs text-gray-400 ml-1">(est.)</span>}
+            </span>
+          )}
+          {property.square_feet && (
+            <span className="flex items-center">
+              <Ruler className="mr-1 h-4 w-4 text-gray-400" />
+              {property.square_feet.toLocaleString()}
+              {property.square_feet_verified === false && <span className="text-xs text-gray-400 ml-1">(est.)</span>}
+            </span>
+          )}
+        </div>
+        {property.description && (
+          <p 
+            className="text-sm text-gray-500 line-clamp-3" 
+            dangerouslySetInnerHTML={{ __html: highlightText(property.description) }}
           />
         )}
         
-        {/* Investment opportunity badge for highlighted properties */}
-        {hasHighlightedKeywords && foundKeywords.map((keyword, index) => (
-          <div 
-            key={index}
-            className="absolute top-2 left-2 bg-yellow-400 dark:bg-yellow-600 text-black dark:text-white text-xs font-bold px-2 py-1 rounded-full"
-            style={{ top: `${index * 28 + 8}px` }} // Position badges vertically underneath each other
-          >
-            {keyword}
+        {hasPlanningDetails && (
+          <div className="mt-2">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPlanningDetails(!showPlanningDetails);
+              }}
+              className="text-xs bg-green-100 hover:bg-green-200 text-green-800 font-medium rounded-full px-2 py-1 flex items-center gap-1"
+            >
+              <span>{showPlanningDetails ? 'Hide Planning Details' : 'View Planning Details'}</span>
+            </button>
+            
+            {showPlanningDetails && planningDetails.length > 0 && (
+              <div className="mt-2 p-2 bg-gray-50 rounded text-xs" onClick={(e) => e.stopPropagation()}>
+                {planningDetails.map((app, index) => (
+                  <div key={index} className="mb-2 pb-2 border-b border-gray-200 last:border-0">
+                    <p className="font-medium">{app.description}</p>
+                    <div className="mt-1 text-gray-600">
+                      <p>Status: {app.status}</p>
+                      <p>Date: {new Date(app.date_submitted).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        ))}
-        
-        <div className="absolute top-2 right-2 bg-background/90 px-2 py-1 rounded text-sm font-medium">
-          {property.property_type || 'Property'}
-        </div>
-        
-        {/* Price badge at the bottom of the image */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-          <div className="flex justify-between items-center">
-            <span className="font-bold text-lg text-white">{formatCurrency(property.price)}</span>
-            <div className="flex items-center gap-1">
-              <span className="text-sm text-white bg-green-600/90 px-2 py-0.5 rounded">
-                {formatROI(property.roi_estimate)}
-              </span>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
-      
-      <CardContent className="p-4">
-        <div className="mb-2">
-          <h3 className="font-semibold text-lg line-clamp-1">{property.address}</h3>
-          <div className="flex items-center text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4 mr-1 flex-shrink-0" />
-            <span className="line-clamp-1">{property.address}</span>
-          </div>
-        </div>
-        
-        {/* Show found keywords when present */}
-        {foundKeywords.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {foundKeywords.map((keyword, index) => (
-              <span 
-                key={index} 
-                className="inline-flex bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 text-xs font-medium px-2 py-1 rounded-full"
-              >
-                {keyword}
-              </span>
-            ))}
-          </div>
-        )}
-        
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <div className="flex flex-col items-center p-2 bg-muted rounded">
-            <span className="text-xs text-muted-foreground">Beds</span>
-            <span className="font-medium">
-              {property.bedrooms}
-              {property.bedrooms_verified === false && (
-                <span className="text-xs text-muted-foreground ml-1">(est.)</span>
-              )}
-            </span>
-          </div>
-          <div className="flex flex-col items-center p-2 bg-muted rounded">
-            <span className="text-xs text-muted-foreground">Baths</span>
-            <span className="font-medium">
-              {property.bathrooms || 'N/A'}
-              {property.bathrooms && property.bathrooms_verified === false && (
-                <span className="text-xs text-muted-foreground ml-1">(est.)</span>
-              )}
-            </span>
-          </div>
-          <div className="flex flex-col items-center p-2 bg-muted rounded">
-            <span className="text-xs text-muted-foreground">Sq Ft</span>
-            <span className="font-medium">
-              {property.square_feet ? property.square_feet.toLocaleString() : 'N/A'}
-              {property.square_feet && property.square_feet_verified === false && (
-                <span className="text-xs text-muted-foreground ml-1">(est.)</span>
-              )}
-            </span>
-          </div>
-        </div>
-        
-        {property.description && (
-          <div className={`mt-2 mb-3 p-2 rounded ${hasHighlightedKeywords ? 'bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800' : 'bg-gray-50 dark:bg-gray-850 border border-gray-100 dark:border-gray-700'}`}>
-            <h4 className="text-sm font-medium mb-1 flex items-center">
-              Description
-            </h4>
-            <p className="text-xs text-muted-foreground line-clamp-3">
-              {property.description.split(" ").map((word, index) => {
-                const lowerWord = word.toLowerCase().replace(/[.,!?;:]/g, "");
-                if (investmentKeywords.includes(lowerWord)) {
-                  return <span key={index} className="font-bold text-primary">{word} </span>;
-                }
-                return <span key={index}>{word} </span>;
-              })}
-            </p>
-          </div>
-        )}
-        
-        <div className="grid grid-cols-2 gap-2">
-          <div className="flex flex-col p-2 bg-green-50 dark:bg-green-950 rounded border border-green-100 dark:border-green-800">
-            <span className="text-xs text-muted-foreground">Est. Rental</span>
-            <span className="font-medium">{property.rental_estimate ? formatCurrency(property.rental_estimate) + '/mo' : 'N/A'}</span>
-          </div>
-          <div className="flex flex-col p-2 bg-blue-50 dark:bg-blue-950 rounded border border-blue-100 dark:border-blue-800">
-            <span className="text-xs text-muted-foreground">Last Sold</span>
-            <span className="font-medium">
-              {property.last_sold_price ? formatCurrency(property.last_sold_price) : 'Unknown'}
-            </span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 };
 
@@ -485,6 +497,8 @@ const Invest = () => {
   });
   const navigate = useNavigate();
   const investmentKeywords = ["garden", "renovated", "spacious", "modern", "garage", "parking", "refurbished", "potential"];
+  const [isSearching, setIsSearching] = useState(false);
+  const [propertyListings, setPropertyListings] = useState<PropertyListing[]>([]);
 
   // Check Supabase session
   const checkSession = async () => {
@@ -566,7 +580,7 @@ const Invest = () => {
     setIsProposalDialogOpen(true);
   };
 
-  const handleFilterChange = (key: keyof FilterState, value: string | string[] | number) => {
+  const handleFilterChange = (key: keyof FilterState, value: string | string[] | number | boolean) => {
     setFilters(prev => ({
       ...prev,
       [key]: value
@@ -576,11 +590,11 @@ const Invest = () => {
   const handleClearFilters = () => {
     setFilters({
       propertyType: "",
-      minPrice: "70000",
-      maxPrice: "275000",
-      minBedrooms: "1",
-      maxBedrooms: "3",
-      minBathrooms: "2",
+      minPrice: "",
+      maxPrice: "",
+      minBedrooms: "",
+      maxBedrooms: "",
+      minBathrooms: "",
       maxBathrooms: "",
       minSquareFeet: "",
       maxSquareFeet: "",
@@ -589,68 +603,201 @@ const Invest = () => {
       dateAdded: "",
       features: [],
       location: "",
-      latitude: 51.507351,
-      longitude: -0.127758,
-      radius: 5
+      findPropertiesInBadCondition: false // Reset the new property
     });
   };
 
   const handleSearch = async () => {
-    setLoading(true);
+    // Log current filter state for debugging
+    console.log("Search triggered with filters:", filters);
+    
+    // Start loading state and reset properties
+    setIsSearching(true);
+    setProperties([]);
+    setPropertyListings([]);
+    
+    // Check if we have coordinates to search
+    if (!filters.latitude || !filters.longitude) {
+      toast.error("Please specify a location to search.");
+      setIsSearching(false);
+      return;
+    }
+    
     try {
-      console.log("Searching with filters:", filters);
+      // Set up filters for API call
+      const patmaFilters = {
+        minBedrooms: parseInt(filters.minBedrooms) || 1,
+        maxBedrooms: parseInt(filters.maxBedrooms) || 5,
+        minBathrooms: parseInt(filters.minBathrooms) || 1,
+        maxBathrooms: parseInt(filters.maxBathrooms) || 3,
+        minPrice: parseInt(filters.minPrice) || 0,
+        maxPrice: parseInt(filters.maxPrice) || 1000000,
+        propertyTypes: filters.propertyType ? [filters.propertyType] : ['semi-detached', 'detached', 'terraced', 'bungalow'],
+        includeKeywords: ['potential', 'renovation', 'opportunity', 'cash only'],
+        excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment'],
+        findPropertiesInBadCondition: !!filters.findPropertiesInBadCondition
+      };
       
-      if (!filters.latitude || !filters.longitude) {
-        toast.error("Please select a valid location first");
-        return;
-      }
-
-      // Define keywords we're interested in
-      const includeKeywords = ['cash only', 'modernization', 'modernization needed', 'modernisation', 'renovation', 'refurbishment', 'potential'];
-      console.log("Looking for properties with keywords:", includeKeywords.join(', '));
-
+      // Show loading toast
+      const searchToast = toast.loading(`Searching for properties near ${filters.location || 'selected location'}...`);
+      
+      console.log("Fetching properties with params:", {
+        latitude: filters.latitude,
+        longitude: filters.longitude,
+        radius: filters.radius,
+        filters: patmaFilters
+      });
+      
+      // Fetch property data from PaTMa API
       const patmaResults = await fetchPatmaPropertyData(
         filters.latitude,
         filters.longitude,
-        filters.radius,
-        {
-          minBedrooms: parseInt(filters.minBedrooms) || 1,
-          maxBedrooms: parseInt(filters.maxBedrooms) || 3,
-          minBathrooms: parseInt(filters.minBathrooms) || 2,
-          minPrice: parseInt(filters.minPrice) || 70000,
-          maxPrice: parseInt(filters.maxPrice) || 275000,
-          propertyTypes: filters.propertyType ? 
-            [filters.propertyType.toLowerCase()] : 
-            ['semi-detached', 'detached', 'terraced', 'bungalow'],
-          includeKeywords: includeKeywords,
-          excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment']
-        }
+        filters.radius || 5,
+        patmaFilters,
+        true // bypass cache
       );
-
-      if (patmaResults && Array.isArray(patmaResults)) {
-        // Filter to ensure only properties with 1-3 bedrooms are shown
-        const filteredResults = patmaResults.filter(property => {
-          const bedrooms = property.bedrooms || 0;
-          return bedrooms >= 1 && bedrooms <= 3;
+      
+      console.log(`PaTMa returned ${patmaResults?.length || 0} properties`);
+      
+      if (!patmaResults || patmaResults.length === 0) {
+        toast.dismiss(searchToast);
+        toast.error("No properties found matching your criteria.");
+        setIsSearching(false);
+        return;
+      }
+      
+      // Store raw PatMa properties for reference
+      setPatmaProperties(patmaResults);
+      
+      // Process properties in batches to check availability
+      const batchSize = 5;
+      const availableProperties: PatmaProperty[] = [];
+      const unavailableProperties: PatmaProperty[] = [];
+      
+      toast.dismiss(searchToast);
+      let processToast = toast.loading(`Processing ${patmaResults.length} properties...`);
+      
+      // Process properties in batches
+      for (let i = 0; i < patmaResults.length; i += batchSize) {
+        const batch = patmaResults.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(async (property) => {
+            try {
+              const isAvailable = property.url 
+                ? await isPropertyUrlActive(property.url)
+                : true; // If no URL assume it's available
+              
+              console.log(`Property ${property.id || i}: ${isAvailable ? 'Available' : 'Unavailable'}`);
+              return { property, isAvailable };
+            } catch (error) {
+              console.error(`Error checking property ${property.id || i}:`, error);
+              return { property, isAvailable: false, error };
+            }
+          })
+        );
+        
+        // Separate available and unavailable properties
+        batchResults.forEach(({ property, isAvailable }) => {
+          if (isAvailable) {
+            availableProperties.push(property);
+          } else {
+            unavailableProperties.push(property);
+          }
         });
         
-        console.log(`Filtered from ${patmaResults.length} to ${filteredResults.length} properties with 1-3 bedrooms`);
-        
-        setPatmaProperties(filteredResults);
-        const mappedProperties = filteredResults.map(mapPatmaToPropertyListing);
-        setProperties(mappedProperties);
-        
-        if (mappedProperties.length > 0) {
-          toast.success(`Found ${mappedProperties.length} properties near ${filters.location}`);
-        } else {
-          toast.info(`No properties found near ${filters.location}`);
-        }
+        // Update toast with progress
+        toast.dismiss(processToast);
+        const progressToast = toast.loading(`Processed ${i + batch.length}/${patmaResults.length} properties...`);
+        processToast = progressToast;
       }
+      
+      toast.dismiss(processToast);
+      
+      console.log(`Found ${availableProperties.length} available properties`);
+      console.log(`Filtered out ${unavailableProperties.length} unavailable properties`);
+      
+      // Map properties to the display format
+      const mappedProperties = await Promise.all(availableProperties.map(async (patmaProperty) => {
+        // Extract postcode for additional data
+        const postcodeMatch = patmaProperty.address?.match(/([A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2})/i);
+        const postcode = postcodeMatch ? postcodeMatch[1] : null;
+        
+        // Fetch planning and other property details if postcode is available
+        let propertyDetails = null;
+        if (postcode) {
+          try {
+            propertyDetails = await fetchPropertyDetails(postcode);
+            console.log(`Fetched details for ${patmaProperty.address}:`, propertyDetails);
+          } catch (error) {
+            console.error(`Error fetching details for ${patmaProperty.address}:`, error);
+          }
+        }
+        
+        // Map the property with additional details
+        const mappedProperty = mapPatmaToPropertyListing(patmaProperty);
+        
+        // Add planning details if available
+        if (propertyDetails?.planning && propertyDetails.planning.applications?.length > 0) {
+          if (!mappedProperty.property_details) {
+            mappedProperty.property_details = {
+              market_demand: "Medium",
+              area_growth: "Steady",
+              crime_rate: "Low",
+              nearby_schools: 3,
+              energy_rating: "C",
+              council_tax_band: "D",
+              property_features: patmaProperty.features || []
+            };
+          }
+          
+          mappedProperty.property_details.planning_applications = propertyDetails.planning.applications.map(app => ({
+            description: app.description,
+            status: app.status,
+            date_submitted: app.date_submitted,
+            reference: app.reference,
+            decision: app.decision,
+            url: app.url
+          }));
+          
+          // Add planning information to description
+          if (mappedProperty.description) {
+            mappedProperty.description += "\n\n" + propertyDetails.planning.applications
+              .map(app => `Planning application: ${app.description} (${app.status})`)
+              .join("\n");
+          }
+        }
+        
+        return mappedProperty;
+      }));
+      
+      // Update state with the processed properties
+      setProperties(mappedProperties);
+      setPropertyListings(mappedProperties);
+      
+      // Show success message
+      if (mappedProperties.length > 0) {
+        toast.success(`Found ${mappedProperties.length} properties matching your criteria.`);
+      } else {
+        toast.info("No available properties found matching your criteria.");
+      }
+      
     } catch (error) {
-      console.error("Error searching properties:", error);
-      toast.error("Failed to search properties");
+      console.error("Search error:", error);
+      toast.error("Error searching for properties. Please try again.");
     } finally {
-      setLoading(false);
+      // End loading state
+      setIsSearching(false);
+      console.log("Search completed.");
+    }
+  };
+
+  const isPropertyUrlActive = async (url: string): Promise<boolean> => {
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      return response.status === 200;
+    } catch (error) {
+      console.error(`Error checking URL ${url}:`, error);
+      return true; // Assume it's active if we can't check
     }
   };
 
@@ -732,62 +879,43 @@ const Invest = () => {
       }
     }
     
-    // Generate a description if none exists
-    const description = patmaProperty.description || (() => {
-      const bedroomText = actualBedrooms ? `${actualBedrooms} bedroom` : '';
-      const locationText = patmaProperty.address ? 
-        `in ${patmaProperty.address.split(',').pop()?.trim() || 'a great location'}` : '';
-      
-      // Add some investment keywords to the descriptions
-      let investmentText = '';
-      
-      // Random property selection for demo purposes - in a real app would be based on actual data
-      const rand = Math.random();
-      
-      // Properties under market value get "cash only" keyword
-      if (rand < 0.33) {
-        investmentText = ' This property is available as cash only and requires modernization.';
-      } 
-      // Properties that likely need renovation
-      else if (rand < 0.66) {
-        investmentText = ' The property needs renovation and is a development opportunity.';
-      }
-      // Properties with good ROI 
-      else {
-        investmentText = ' This property requires refurbishment and has potential for extension.';
-      }
-      
-      return `A ${bedroomText} ${propertyType} ${locationText}.${investmentText} This property is available for purchase and could be an excellent investment opportunity. Contact the agent for more details and to arrange a viewing.`;
-    })();
+    // Estimate square footage based on property type and bedrooms if not provided
+    const squareFeet = patmaProperty.square_feet || patmaProperty.floor_area_sqft || patmaProperty.floor_area_sqm ? 
+      (patmaProperty.square_feet || patmaProperty.floor_area_sqft || (patmaProperty.floor_area_sqm ? patmaProperty.floor_area_sqm * 10.764 : null)) :
+      estimateSquareFootage(patmaProperty.property_type || '', patmaProperty.bedrooms || 0);
     
-    // Determine if square footage is directly from the API (verified) or estimated
-    let squareFeet = patmaProperty.floor_area_sqft || patmaProperty.square_feet || patmaProperty.area || null;
-    let squareFeetVerified = true; // Default to true if data exists
+    // Generate property description if not provided
+    let description = patmaProperty.description || '';
     
-    // Check if we have direct floor_area_sqft data from the API
-    if (patmaProperty.floor_area_sqft) {
-      squareFeetVerified = true; // Directly from PaTMa API, so verified
-    } else if (patmaProperty.square_feet || patmaProperty.area) {
-      squareFeetVerified = false; // Using fallback data, so mark as unverified
+    // Add planning application description to the property description if available
+    if (patmaProperty.planning_details?.description) {
+      description += `\n\nPlanning application: ${patmaProperty.planning_details.description}`;
+    } else if (patmaProperty.has_planning) {
+      description += '\n\nThis property has a planning application.';
     }
     
-    // If no square footage data is available, estimate based on property type and bedrooms
-    if (squareFeet === null) {
-      squareFeetVerified = false; // We're estimating, so mark as not verified
-      if (actualBedrooms) {
-        // Rough estimates based on UK averages
-        if (propertyType.toLowerCase().includes('flat') || propertyType.toLowerCase().includes('apartment')) {
-          squareFeet = actualBedrooms * 350; // ~350 sq ft per bedroom for flats
-        } else if (propertyType.toLowerCase().includes('detached')) {
-          squareFeet = actualBedrooms * 450; // ~450 sq ft per bedroom for detached
-        } else {
-          squareFeet = actualBedrooms * 400; // ~400 sq ft per bedroom for other houses
-        }
-      } else {
-        // Default estimate if we don't even have bedroom count
-        squareFeet = 800; // Average 1-2 bedroom property
-      }
-    }
+    // Create investment highlights
+    const investmentHighlights = {
+      location: patmaProperty.location || patmaProperty.address || "Unknown",
+      type: propertyType,
+      features: patmaProperty.features ? patmaProperty.features.slice(0, 3).join(", ") : ""
+    };
+    
+    // Handle planning details if available
+    const property_details = patmaProperty.planning_details ? {
+      market_demand: 'Medium', // Default value
+      area_growth: 'Steady',  // Default value
+      crime_rate: 'Low',      // Default value
+      nearby_schools: 3,      // Default value
+      energy_rating: 'C',     // Default value
+      council_tax_band: 'D',  // Default value
+      property_features: patmaProperty.features || [],
+      planning_applications: patmaProperty.planning_details ? [{
+        description: patmaProperty.planning_details.description || 'Planning application available',
+        status: 'Unknown',
+        date_submitted: patmaProperty.updated_at || new Date().toISOString()
+      }] : []
+    } : undefined;
     
     return {
       id: patmaProperty.id || `patma-${Math.random().toString(36).substr(2, 9)}`,
@@ -798,7 +926,7 @@ const Invest = () => {
       bathrooms: bathrooms,
       bathrooms_verified: bathroomsVerified,
       square_feet: squareFeet,
-      square_feet_verified: squareFeetVerified,
+      square_feet_verified: true,
       image_url: imageUrl,
       roi_estimate: patmaProperty.roi || calculateROI(
         price, 
@@ -809,11 +937,7 @@ const Invest = () => {
         actualBedrooms, 
         propertyType
       ),
-      investment_highlights: {
-        location: patmaProperty.location || patmaProperty.address || "Unknown",
-        type: propertyType,
-        features: patmaProperty.features ? patmaProperty.features.slice(0, 3).join(", ") : ""
-      },
+      investment_highlights: investmentHighlights,
       investment_score: patmaProperty.investment_score || 70,
       created_at: patmaProperty.created_at || new Date().toISOString(),
       updated_at: patmaProperty.updated_at || new Date().toISOString(),
@@ -836,15 +960,7 @@ const Invest = () => {
       price_history: patmaProperty.price_history || null,
       latitude: patmaProperty.latitude || patmaProperty.lat || null,
       longitude: patmaProperty.longitude || patmaProperty.lng || null,
-      property_details: {
-        market_demand: patmaProperty.market_demand || "Medium",
-        area_growth: patmaProperty.area_growth || "3.5%",
-        crime_rate: patmaProperty.crime_rate || "Average",
-        nearby_schools: patmaProperty.nearby_schools || 0,
-        energy_rating: patmaProperty.energy_rating || "Unknown",
-        council_tax_band: patmaProperty.council_tax_band || "Unknown",
-        property_features: patmaProperty.features || []
-      },
+      property_details,
       market_trends: {
         appreciation_rate: patmaProperty.appreciation_rate || 3.2,
         market_activity: patmaProperty.market_activity || "Moderate"

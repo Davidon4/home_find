@@ -114,7 +114,7 @@ export async function analyzeProperty(property: MappedProperty): Promise<Propert
     // Configure axios headers
     const config = {
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Token ${apiKey}`,
         'Content-Type': 'application/json'
       }
     };
@@ -124,6 +124,7 @@ export async function analyzeProperty(property: MappedProperty): Promise<Propert
       axios.get(`${baseUrl}/sold-prices-within`, {
         ...config,
         params: {
+          api_key: apiKey,
           postcode,
           radius: 5,
           property_type: normalizedPropertyType,
@@ -137,6 +138,7 @@ export async function analyzeProperty(property: MappedProperty): Promise<Propert
       axios.get(`${baseUrl}/sold-prices-floor-area-within`, {
         ...config,
         params: {
+          api_key: apiKey,
           postcode,
           radius: 5,
           property_type: normalizedPropertyType,
@@ -148,14 +150,20 @@ export async function analyzeProperty(property: MappedProperty): Promise<Propert
       }),
       axios.get(`${baseUrl}/geographies`, {
         ...config,
-        params: { postcode }
+        params: { 
+          api_key: apiKey,
+          postcode 
+        }
       }).catch(error => {
         console.error('Error fetching geography data:', error.response?.data || error.message);
         return { data: { data: null } };
       }),
       axios.get(`${baseUrl}/crime`, {
         ...config,
-        params: { postcode }
+        params: { 
+          api_key: apiKey,
+          postcode 
+        }
       }).catch(error => {
         console.error('Error fetching crime data:', error.response?.data || error.message);
         return { data: { data: null } };
