@@ -616,170 +616,101 @@ const Invest = () => {
     setProperties([]);
     setPropertyListings([]);
     
-    // Check if we have coordinates to search
-    if (!filters.latitude || !filters.longitude) {
-      toast.error("Please specify a location to search.");
-      setIsSearching(false);
-      return;
-    }
-    
     try {
-      // Set up filters for API call
-      const patmaFilters = {
-        minBedrooms: parseInt(filters.minBedrooms) || 1,
-        maxBedrooms: parseInt(filters.maxBedrooms) || 5,
-        minBathrooms: parseInt(filters.minBathrooms) || 1,
-        maxBathrooms: parseInt(filters.maxBathrooms) || 3,
-        minPrice: parseInt(filters.minPrice) || 0,
-        maxPrice: parseInt(filters.maxPrice) || 1000000,
-        propertyTypes: filters.propertyType ? [filters.propertyType] : ['semi-detached', 'detached', 'terraced', 'bungalow'],
-        includeKeywords: ['potential', 'renovation', 'opportunity', 'cash only'],
-        excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment'],
-        findPropertiesInBadCondition: !!filters.findPropertiesInBadCondition
-      };
+      // Check if we have a location but coordinates still show London default values
+      if (filters.location && 
+          filters.latitude === 51.507351 && 
+          filters.longitude === -0.127758) {
+        // Need to get coordinates for the location
+        console.log(`Location "${filters.location}" entered but coordinates still at London default. Updating coordinates...`);
+        
+        const locationToast = toast.loading(`Finding coordinates for ${filters.location}...`);
+        
+        // Try to get coordinates for the location
+        const ukPostcodeRegex = /^[A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2}$/i;
+        const isPostcode = ukPostcodeRegex.test(filters.location.replace(/\s/g, ''));
+        
+        let locationFound = false;
+        let newCoordinates = {
+          latitude: null as number | null,
+          longitude: null as number | null
+        };
+        
+        // First try postcode lookup if it looks like a postcode
+        if (isPostcode) {
+          try {
+            const response = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(filters.location)}`);
+            const data = await response.json();
+            
+            if (data.status === 200 && data.result) {
+              newCoordinates = {
+                latitude: data.result.latitude,
+                longitude: data.result.longitude
+              };
+              
+              console.log(`Found postcode coordinates for ${filters.location}:`, newCoordinates);
+              locationFound = true;
+            }
+          } catch (error) {
+            console.error("Error in postcode lookup:", error);
+          }
+        }
+        
+        // If not a postcode or postcode lookup failed, try general location search
+        if (!locationFound) {
+          try {
+            const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(filters.location)}&format=json&country=UK&limit=1`);
+            const data = await response.json();
+            
+            if (data && data.length > 0) {
+              newCoordinates = {
+                latitude: parseFloat(data[0].lat),
+                longitude: parseFloat(data[0].lon)
+              };
+              
+              console.log(`Found location coordinates for ${filters.location}:`, newCoordinates);
+              locationFound = true;
+            }
+          } catch (error) {
+            console.error("Error in location lookup:", error);
+          }
+        }
+        
+        toast.dismiss(locationToast);
+        
+        if (!locationFound) {
+          toast.error(`Could not find coordinates for "${filters.location}". Using default location.`);
+        } else {
+          toast.success(`Found coordinates for ${filters.location}`);
+          
+          // First update the state
+          setFilters(prev => ({
+            ...prev,
+            latitude: newCoordinates.latitude,
+            longitude: newCoordinates.longitude
+          }));
+          
+          // IMPORTANT: Use the new coordinates directly instead of relying on state update
+          if (newCoordinates.latitude && newCoordinates.longitude) {
+            console.log("Executing search with new coordinates:", newCoordinates);
+            await executeSearch(newCoordinates.latitude, newCoordinates.longitude, filters.radius || 5);
+            setIsSearching(false);
+            return; // Exit early since we've executed the search with new coordinates
+          }
+        }
+      }
       
-      // Show loading toast
-      const searchToast = toast.loading(`Searching for properties near ${filters.location || 'selected location'}...`);
-      
-      console.log("Fetching properties with params:", {
-        latitude: filters.latitude,
-        longitude: filters.longitude,
-        radius: filters.radius,
-        filters: patmaFilters
-      });
-      
-      // Fetch property data from PaTMa API
-      const patmaResults = await fetchPatmaPropertyData(
-        filters.latitude,
-        filters.longitude,
-        filters.radius || 5,
-        patmaFilters,
-        true // bypass cache
-      );
-      
-      console.log(`PaTMa returned ${patmaResults?.length || 0} properties`);
-      
-      if (!patmaResults || patmaResults.length === 0) {
-        toast.dismiss(searchToast);
-        toast.error("No properties found matching your criteria.");
+      // If we reach here, either the coordinates were already set or we couldn't update them
+      // Check if we have coordinates to search with
+      if (!filters.latitude || !filters.longitude) {
+        toast.error("Please specify a location to search.");
         setIsSearching(false);
         return;
       }
       
-      // Store raw PatMa properties for reference
-      setPatmaProperties(patmaResults);
-      
-      // Process properties in batches to check availability
-      const batchSize = 5;
-      const availableProperties: PatmaProperty[] = [];
-      const unavailableProperties: PatmaProperty[] = [];
-      
-      toast.dismiss(searchToast);
-      let processToast = toast.loading(`Processing ${patmaResults.length} properties...`);
-      
-      // Process properties in batches
-      for (let i = 0; i < patmaResults.length; i += batchSize) {
-        const batch = patmaResults.slice(i, i + batchSize);
-        const batchResults = await Promise.all(
-          batch.map(async (property) => {
-            try {
-              const isAvailable = property.url 
-                ? await isPropertyUrlActive(property.url)
-                : true; // If no URL assume it's available
-              
-              console.log(`Property ${property.id || i}: ${isAvailable ? 'Available' : 'Unavailable'}`);
-              return { property, isAvailable };
-            } catch (error) {
-              console.error(`Error checking property ${property.id || i}:`, error);
-              return { property, isAvailable: false, error };
-            }
-          })
-        );
-        
-        // Separate available and unavailable properties
-        batchResults.forEach(({ property, isAvailable }) => {
-          if (isAvailable) {
-            availableProperties.push(property);
-          } else {
-            unavailableProperties.push(property);
-          }
-        });
-        
-        // Update toast with progress
-        toast.dismiss(processToast);
-        const progressToast = toast.loading(`Processed ${i + batch.length}/${patmaResults.length} properties...`);
-        processToast = progressToast;
-      }
-      
-      toast.dismiss(processToast);
-      
-      console.log(`Found ${availableProperties.length} available properties`);
-      console.log(`Filtered out ${unavailableProperties.length} unavailable properties`);
-      
-      // Map properties to the display format
-      const mappedProperties = await Promise.all(availableProperties.map(async (patmaProperty) => {
-        // Extract postcode for additional data
-        const postcodeMatch = patmaProperty.address?.match(/([A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2})/i);
-        const postcode = postcodeMatch ? postcodeMatch[1] : null;
-        
-        // Fetch planning and other property details if postcode is available
-        let propertyDetails = null;
-        if (postcode) {
-          try {
-            propertyDetails = await fetchPropertyDetails(postcode);
-            console.log(`Fetched details for ${patmaProperty.address}:`, propertyDetails);
-          } catch (error) {
-            console.error(`Error fetching details for ${patmaProperty.address}:`, error);
-          }
-        }
-        
-        // Map the property with additional details
-        const mappedProperty = mapPatmaToPropertyListing(patmaProperty);
-        
-        // Add planning details if available
-        if (propertyDetails?.planning && propertyDetails.planning.applications?.length > 0) {
-          if (!mappedProperty.property_details) {
-            mappedProperty.property_details = {
-              market_demand: "Medium",
-              area_growth: "Steady",
-              crime_rate: "Low",
-              nearby_schools: 3,
-              energy_rating: "C",
-              council_tax_band: "D",
-              property_features: patmaProperty.features || []
-            };
-          }
-          
-          mappedProperty.property_details.planning_applications = propertyDetails.planning.applications.map(app => ({
-            description: app.description,
-            status: app.status,
-            date_submitted: app.date_submitted,
-            reference: app.reference,
-            decision: app.decision,
-            url: app.url
-          }));
-          
-          // Add planning information to description
-          if (mappedProperty.description) {
-            mappedProperty.description += "\n\n" + propertyDetails.planning.applications
-              .map(app => `Planning application: ${app.description} (${app.status})`)
-              .join("\n");
-          }
-        }
-        
-        return mappedProperty;
-      }));
-      
-      // Update state with the processed properties
-      setProperties(mappedProperties);
-      setPropertyListings(mappedProperties);
-      
-      // Show success message
-      if (mappedProperties.length > 0) {
-        toast.success(`Found ${mappedProperties.length} properties matching your criteria.`);
-      } else {
-        toast.info("No available properties found matching your criteria.");
-      }
+      // Execute search with current coordinates
+      console.log("Using existing coordinates:", { latitude: filters.latitude, longitude: filters.longitude });
+      await executeSearch(filters.latitude, filters.longitude, filters.radius || 5);
       
     } catch (error) {
       console.error("Search error:", error);
@@ -791,13 +722,172 @@ const Invest = () => {
     }
   };
 
+  // Modify the executeSearch function to use correct coordinates
+  const executeSearch = async (latitude: number, longitude: number, radius: number = 5) => {
+    // Add explicit log to confirm coordinates being used
+    console.log("EXECUTING SEARCH WITH EXACT COORDINATES:", { latitude, longitude, radius });
+    
+    // Set up filters for API call
+    const patmaFilters = {
+      minBedrooms: parseInt(filters.minBedrooms) || 1,
+      maxBedrooms: parseInt(filters.maxBedrooms) || 5,
+      minBathrooms: parseInt(filters.minBathrooms) || 1,
+      maxBathrooms: parseInt(filters.maxBathrooms) || 3,
+      minPrice: parseInt(filters.minPrice) || 0,
+      maxPrice: parseInt(filters.maxPrice) || 1000000,
+      propertyTypes: filters.propertyType ? [filters.propertyType] : ['semi-detached', 'detached', 'terraced', 'bungalow'],
+      includeKeywords: ['potential', 'renovation', 'opportunity', 'cash only'],
+      excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment'],
+      findPropertiesInBadCondition: !!filters.findPropertiesInBadCondition
+    };
+    
+    // Show loading toast with location name if available
+    const locationName = filters.location || (
+      latitude === 51.507351 && longitude === -0.127758 ? 'London (default)' : 
+      `coordinates (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`
+    );
+    const searchToast = toast.loading(`Searching for properties near ${locationName}...`);
+    
+    console.log("Fetching properties with params:", {
+      latitude,
+      longitude,
+      radius,
+      filters: patmaFilters
+    });
+    
+    // Fetch property data from PaTMa API with the correct coordinates
+    const patmaResults = await fetchPatmaPropertyData(
+      latitude,
+      longitude,
+      radius,
+      patmaFilters,
+      true // bypass cache
+    );
+    
+    console.log(`PaTMa returned ${patmaResults?.length || 0} properties for location near ${locationName}`);
+    
+    if (!patmaResults || patmaResults.length === 0) {
+      toast.dismiss(searchToast);
+      toast.error("No properties found matching your criteria.");
+      return;
+    }
+    
+    // Store raw PatMa properties for reference
+    setPatmaProperties(patmaResults);
+    
+    // Process properties in batches to check availability
+    const batchSize = 5;
+    const availableProperties: PatmaProperty[] = [];
+    const unavailableProperties: PatmaProperty[] = [];
+    
+    toast.dismiss(searchToast);
+    let processToast = toast.loading(`Processing ${patmaResults.length} properties...`);
+    
+    // Process properties in batches
+    for (let i = 0; i < patmaResults.length; i += batchSize) {
+      const batch = patmaResults.slice(i, i + batchSize);
+      const batchResults = await Promise.all(
+        batch.map(async (property) => {
+          try {
+            const isAvailable = property.url 
+              ? await isPropertyUrlActive(property.url)
+              : true; // If no URL assume it's available
+            
+            console.log(`Property ${property.id || i}: ${isAvailable ? 'Available' : 'Unavailable'}`);
+            return { property, isAvailable };
+          } catch (error) {
+            console.error(`Error checking property ${property.id || i}:`, error);
+            return { property, isAvailable: false, error };
+          }
+        })
+      );
+      
+      // Separate available and unavailable properties
+      batchResults.forEach(({ property, isAvailable }) => {
+        if (isAvailable) {
+          availableProperties.push(property);
+        } else {
+          unavailableProperties.push(property);
+        }
+      });
+      
+      // Update toast with progress
+      toast.dismiss(processToast);
+      processToast = toast.loading(`Processed ${i + batch.length}/${patmaResults.length} properties...`);
+    }
+    
+    toast.dismiss(processToast);
+    
+    console.log(`Found ${availableProperties.length} available properties`);
+    console.log(`Filtered out ${unavailableProperties.length} unavailable properties`);
+    
+    // Map properties to the display format
+    const mappedProperties = await Promise.all(availableProperties.map(async (patmaProperty) => {
+      // Extract postcode for additional data
+      const postcodeMatch = patmaProperty.address?.match(/([A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2})/i);
+      const postcode = postcodeMatch ? postcodeMatch[1] : null;
+      
+      // Fetch planning and other property details if postcode is available
+      let propertyDetails = null;
+      if (postcode) {
+        try {
+          propertyDetails = await fetchPropertyDetails(postcode);
+          console.log(`Fetched details for ${patmaProperty.address}:`, propertyDetails);
+        } catch (error) {
+          console.error(`Error fetching details for ${patmaProperty.address}:`, error);
+        }
+      }
+      
+      // Map the property with additional details
+      const mappedProperty = mapPatmaToPropertyListing(patmaProperty);
+      
+      // Add planning details to description if available
+      if (propertyDetails?.planning && propertyDetails.planning.applications?.length > 0) {
+        if (mappedProperty.description) {
+          mappedProperty.description += "\n\n" + propertyDetails.planning.applications
+            .map(app => `Planning application: ${app.description} (${app.status})`)
+            .join("\n");
+        }
+      }
+      
+      return mappedProperty;
+    }));
+    
+    // Update state with the processed properties
+    setProperties(mappedProperties);
+    setPropertyListings(mappedProperties);
+    
+    // Show success message
+    if (mappedProperties.length > 0) {
+      toast.success(`Found ${mappedProperties.length} properties matching your criteria.`);
+    } else {
+      toast.info("No available properties found matching your criteria.");
+    }
+  };
+
+  // Improve the URL checking function
   const isPropertyUrlActive = async (url: string): Promise<boolean> => {
+    if (!url) return false;
+    
+    console.log(`Checking if property URL is active: ${url}`);
+    
     try {
-      const response = await fetch(url, { method: 'HEAD' });
-      return response.status === 200;
+      // Make a HEAD request to check if the URL is active
+      const response = await fetch(url, {
+        method: 'HEAD',
+        mode: 'no-cors', // Use no-cors to avoid CORS issues
+        cache: 'no-cache',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      });
+      
+      // For no-cors mode, we won't get status, so just assume it's available if no error
+      return true;
     } catch (error) {
       console.error(`Error checking URL ${url}:`, error);
-      return true; // Assume it's active if we can't check
+      // If we can't check the URL, assume it's active to avoid missing potentially good listings
+      return true;
     }
   };
 

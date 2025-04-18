@@ -325,11 +325,16 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
 
     // Only trigger search if we have valid coordinates
     if (filters.latitude && filters.longitude && onSearch) {
-      console.log("Triggering search with coordinates:", {
-        latitude: filters.latitude,
-        longitude: filters.longitude
-      });
-      onSearch();
+      // Make sure we're not still using the default London coordinates
+      if (filters.latitude === 51.507351 && filters.longitude === -0.127758 && searchTerm.toLowerCase() !== "london") {
+        toast.error("Could not update coordinates. Using default London location.");
+      } else {
+        console.log("Triggering search with coordinates:", {
+          latitude: filters.latitude,
+          longitude: filters.longitude
+        });
+        onSearch();
+      }
     } else {
       toast.error("Unable to determine location coordinates. Please try a different search term.");
     }
@@ -338,6 +343,7 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
   // Function to handle location suggestion selection
   const handleSelectSuggestion = (suggestion: LocationSuggestion) => {
     console.log("Selected suggestion:", suggestion);
+    
     // Update location input value and coordinates directly from suggestion
     onFilterChange('location', suggestion.name);
     onFilterChange('latitude', suggestion.lat);
@@ -347,10 +353,18 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
     setShowSuggestions(false);
     toast.success(`Location set to ${suggestion.name}`);
     
-    // Trigger search immediately after selecting a suggestion
-    if (onSearch) {
-      console.log("Triggering search after suggestion selection");
-      onSearch();
+    // Verify we have valid coordinates
+    if (suggestion.lat && suggestion.lon && suggestion.lat !== 51.507351 && suggestion.lon !== -0.127758) {
+      // Trigger search immediately after selecting a suggestion
+      if (onSearch) {
+        console.log("Triggering search after suggestion selection with coordinates:", {
+          latitude: suggestion.lat,
+          longitude: suggestion.lon
+        });
+        onSearch();
+      }
+    } else {
+      toast.error("Invalid coordinates for this location. Please try a different location.");
     }
   };
 
@@ -369,19 +383,84 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
     const isPostcodeAttempt = ukPostcodeRegex.test(location.replace(/\s/g, ''));
     
     let foundLocation = false;
+    const newCoordinates = {
+      latitude: null as number | null,
+      longitude: null as number | null
+    };
+    
     if (isPostcodeAttempt) {
-        foundLocation = await performPostcodeSearch(location);
+      try {
+        console.log(`Checking if '${location}' is a valid UK postcode`);
+        const response = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(location)}`);
+        const data = await response.json();
+        
+        if (data.status === 200 && data.result) {
+          newCoordinates.latitude = data.result.latitude;
+          newCoordinates.longitude = data.result.longitude;
+          
+          // Update filter state with fresh coordinates
+          onFilterChange('latitude', newCoordinates.latitude);
+          onFilterChange('longitude', newCoordinates.longitude);
+          
+          console.log(`Found coordinates for ${location}:`, newCoordinates);
+          foundLocation = true;
+          
+          const locationName = [
+            data.result.parish,
+            data.result.admin_district,
+            data.result.admin_county,
+            data.result.country
+          ].filter(Boolean)[0] || location;
+          
+          toast.success(`Found location: ${locationName}`);
+        }
+      } catch (error) {
+        console.error("Error validating postcode:", error);
+      }
     } 
+    
     if (!foundLocation) {
-        foundLocation = await performGeneralLocationSearch(location);
+      try {
+        console.log(`Performing general location search for: "${location}"`);
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&country=UK&limit=1`);
+        const data = await response.json();
+        
+        if (data && data.length > 0) {
+          newCoordinates.latitude = parseFloat(data[0].lat);
+          newCoordinates.longitude = parseFloat(data[0].lon);
+          
+          // Update filter state with coordinates
+          onFilterChange('latitude', newCoordinates.latitude);
+          onFilterChange('longitude', newCoordinates.longitude);
+          
+          const displayName = data[0].display_name.split(',').slice(0, 2).join(',');
+          console.log(`Found coordinates for ${location}:`, newCoordinates);
+          
+          toast.success(`Found location: ${displayName}`);
+          foundLocation = true;
+        }
+      } catch (error) {
+        console.error("Error in general location search:", error);
+      }
     }
-
+    
     toast.dismiss(loadingToast);
     
-    if (!foundLocation && !isPostcodeAttempt) {
-        toast.error(`Could not find coordinates for "${location}". Please try again.`);
+    if (!foundLocation) {
+      toast.error(`Could not find coordinates for "${location}". Please try a different location.`);
+      return;
     }
-    // Note: The search is triggered within performPostcodeSearch/performGeneralLocationSearch if successful
+    
+    // Verify we have valid coordinates before triggering search
+    if (newCoordinates.latitude && newCoordinates.longitude && onSearch) {
+      // Short delay to ensure state is updated
+      setTimeout(() => {
+        console.log("Triggering search with coordinates:", newCoordinates);
+        onSearch();
+      }, 100);
+    } else {
+      toast.error("Unable to determine location coordinates. Please try a different search term.");
+    }
   };
   
   return (
