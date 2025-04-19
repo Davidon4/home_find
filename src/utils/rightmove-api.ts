@@ -555,11 +555,12 @@ export const fetchPatmaPropertyData = async (
     minPrice: 70000,
     maxPrice: 275000,
     propertyTypes: ['semi-detached', 'detached', 'terraced', 'bungalow'],
-    includeKeywords: ['cash only', 'modernization', 'modernization needed'],
+    includeKeywords: [], // Empty the keywords array
     excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment'],
     findPropertiesInBadCondition: true // New flag to indicate we want properties in bad condition
   },
-  bypassCache = false
+  bypassCache = false,
+  postcode?: string // Add optional postcode parameter
 ) => {
   // Validate coordinates
   if (!latitude || !longitude) {
@@ -617,26 +618,40 @@ export const fetchPatmaPropertyData = async (
     for (const propertyType of validPropertyTypes) {
       try {
         console.log(`Fetching ${propertyType} properties...`);
+        
+        const params: Record<string, string | number> = {
+          api_key: apiKey,
+          property_type: propertyType,
+          require_sold_price: "true",
+          include_sold_history: "true",
+          page: 1,
+          page_size: 100,
+          min_bedrooms: filters.minBedrooms,
+          max_bedrooms: filters.maxBedrooms,
+          min_bathrooms: filters.minBathrooms,
+          min_price: filters.minPrice,
+          max_price: filters.maxPrice
+        };
+        
+        // Use postcode or coordinates based on what's available
+        if (postcode) {
+          params.postcode = postcode;
+          console.log(`Using postcode: ${postcode} for search`);
+        } else {
+          params.lat = latitude;
+          params.long = longitude;
+          console.log(`Using coordinates: lat=${latitude}, long=${longitude} for search`);
+        }
+        
+        if (radius) {
+          params.radius = radius;
+        }
+        
         const response = await axios.get('https://app.patma.co.uk/api/prospector/v1/list-property/', {
+          params,
           headers: {
             'Authorization': `Token ${apiKey}`,
             'Content-Type': 'application/json'
-          },
-          params: {
-            api_key: apiKey,
-            lat: latitude,
-            long: longitude,
-            radius: radius,
-            require_sold_price: true,
-            include_sold_history: true,
-            page: 1,
-            page_size: 100,
-            min_bedrooms: filters.minBedrooms,
-            max_bedrooms: filters.maxBedrooms,
-            min_bathrooms: filters.minBathrooms,
-            min_price: filters.minPrice,
-            max_price: filters.maxPrice,
-            property_type: propertyType // Single property type per request
           }
         });
         
@@ -741,50 +756,6 @@ export const fetchPatmaPropertyData = async (
         
         // Combine prioritized results with remaining results
         filteredResults = [...enhancedPrioritizedResults, ...remainingResults];
-      }
-    }
-    
-    // Filter to INCLUDE properties with specific keywords
-    if (filters.includeKeywords && filters.includeKeywords.length > 0) {
-      console.log(`Looking for properties with keywords: ${filters.includeKeywords.join(', ')}`);
-      
-      // First, check if any properties have our keywords
-      const keywordMatches = filteredResults.map(property => {
-        const addressLower = (property.address || '').toLowerCase();
-        const descriptionLower = (property.description || '').toLowerCase();
-        
-        // Find all keywords in this property
-        const matchedKeywords = filters.includeKeywords.filter(keyword => 
-          addressLower.includes(keyword.toLowerCase()) || 
-          descriptionLower.includes(keyword.toLowerCase())
-        );
-        
-        return {
-          id: property.id,
-          address: property.address,
-          matchedKeywords
-        };
-      }).filter(match => match.matchedKeywords.length > 0);
-      
-      console.log("Properties with keyword matches:", keywordMatches);
-      
-      const keywordFilteredResults = filteredResults.filter(property => {
-        const addressLower = (property.address || '').toLowerCase();
-        const descriptionLower = (property.description || '').toLowerCase();
-        
-        // Include property if ANY of the keywords are found in the address or description
-        return filters.includeKeywords.some(keyword => 
-          addressLower.includes(keyword.toLowerCase()) || 
-          descriptionLower.includes(keyword.toLowerCase())
-        );
-      });
-      
-      // If we found properties with the desired keywords, use only those
-      if (keywordFilteredResults.length > 0) {
-        filteredResults = keywordFilteredResults;
-        console.log(`Found ${keywordFilteredResults.length} properties with keywords: ${filters.includeKeywords.join(', ')}`);
-      } else {
-        console.log(`No properties found with keywords: ${filters.includeKeywords.join(', ')}`);
       }
     }
     

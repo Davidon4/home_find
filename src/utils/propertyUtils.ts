@@ -1,4 +1,3 @@
-
 import { PropertyListing } from "@/types/property";
 
 export const placeholderImages = [
@@ -12,7 +11,13 @@ export const getRandomPlaceholder = () => {
 };
 
 export const getBidRecommendation = (property: PropertyListing) => {
-  if (!property.bidding_recommendation) return null;
+  if (!property.bidding_recommendation || 
+      property.bidding_recommendation <= 0 || 
+      !property.price || 
+      property.price <= 0) {
+    return null;
+  }
+  
   const diff = ((property.bidding_recommendation - property.price) / property.price) * 100;
   return {
     value: property.bidding_recommendation,

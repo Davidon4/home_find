@@ -440,17 +440,28 @@ export const PropertyAnalysis = ({
                   <div className="p-3 border rounded-lg">
                     <h4 className="text-sm font-medium mb-2">Bidding Recommendation</h4>
                     <div className="flex justify-between items-center">
-                      <span className="text-lg font-bold">{formatCurrency(analysisData.bidding_recommendation)}</span>
-                      <span className={`text-sm px-2 py-1 rounded-full ${
-                        analysisData.bidding_recommendation > price 
-                          ? "bg-green-100 text-green-800" 
-                          : "bg-amber-100 text-amber-800"
-                      }`}>
-                        {typeof analysisData.bidding_recommendation === 'number' && typeof price === 'number' 
-                          ? ((analysisData.bidding_recommendation - price) / price * 100).toFixed(1) 
-                          : '0.0'}% 
-                        {analysisData.bidding_recommendation > price ? " above" : " below"} asking
+                      <span className="text-lg font-bold">
+                        {analysisData.bidding_recommendation && analysisData.bidding_recommendation > 0 
+                          ? formatCurrency(analysisData.bidding_recommendation) 
+                          : "Not available"}
                       </span>
+                      {analysisData.bidding_recommendation && 
+                       typeof analysisData.bidding_recommendation === 'number' && 
+                       analysisData.bidding_recommendation > 0 && 
+                       price > 0 ? (
+                        <span className={`text-sm px-2 py-1 rounded-full ${
+                          analysisData.bidding_recommendation > price 
+                            ? "bg-green-100 text-green-800" 
+                            : "bg-amber-100 text-amber-800"
+                        }`}>
+                          {((analysisData.bidding_recommendation - price) / price * 100).toFixed(1)}% 
+                          {analysisData.bidding_recommendation > price ? " above" : " below"} asking
+                        </span>
+                      ) : (
+                        <span className="text-sm px-2 py-1 rounded-full bg-gray-100 text-gray-800">
+                          Awaiting data
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

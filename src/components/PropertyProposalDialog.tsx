@@ -253,6 +253,11 @@ export function PropertyProposalDialog({
         rentalEstimate: formatCurrency(analysis.rental_estimate),
         roiEstimate: typeof analysis.roi_estimate === 'number' ? `${analysis.roi_estimate.toFixed(2)}%` : 'Not available',
         investmentScore: typeof analysis.investment_score === 'number' ? `${analysis.investment_score}/100` : 'Not available',
+        biddingRecommendation: analysis.bidding_recommendation ? formatCurrency(analysis.bidding_recommendation) : 'Not available',
+        biddingDifference: typeof analysis.bidding_recommendation === 'number' && analysis.bidding_recommendation > 0 ? 
+          ((analysis.bidding_recommendation - property.price) / property.price * 100).toFixed(1) : null,
+        biddingDirection: typeof analysis.bidding_recommendation === 'number' && analysis.bidding_recommendation > 0 ? 
+          (analysis.bidding_recommendation > property.price ? "above" : "below") : null,
         summary: analysis.summary || 'No analysis available',
         recommendation: analysis.recommendation || 'No recommendation available'
       };
@@ -268,13 +273,17 @@ Property Details:
 - Bathrooms: ${propertyDetails.bathrooms}
 - Square Feet: ${propertyDetails.squareFeet}
 
-Property Description:
-${propertyDetails.description}
+BIDDING STRATEGY:
+- Recommended Bidding Price: ${propertyDetails.biddingRecommendation}
+${propertyDetails.biddingDifference ? `- This is ${propertyDetails.biddingDifference}% ${propertyDetails.biddingDirection} the asking price` : '- Unable to calculate bidding difference based on available data'}
 
 Investment Analysis:
 - AI Investment Score: ${propertyDetails.investmentScore}
 - Estimated Monthly Rental: ${propertyDetails.rentalEstimate}
 - Estimated Annual ROI: ${propertyDetails.roiEstimate}
+
+Property Description:
+${propertyDetails.description}
 
 Summary:
 ${propertyDetails.summary}

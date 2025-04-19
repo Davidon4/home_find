@@ -725,7 +725,11 @@ const Invest = () => {
   // Modify the executeSearch function to use correct coordinates
   const executeSearch = async (latitude: number, longitude: number, radius: number = 5) => {
     // Add explicit log to confirm coordinates being used
-    console.log("EXECUTING SEARCH WITH EXACT COORDINATES:", { latitude, longitude, radius });
+    console.log("EXECUTING SEARCH WITH:", { latitude, longitude, radius, postcode: filters.location });
+    
+    // Check if location looks like a postcode
+    const ukPostcodeRegex = /^[A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2}$/i;
+    const isPostcode = filters.location && ukPostcodeRegex.test(filters.location.replace(/\s/g, ''));
     
     // Set up filters for API call
     const patmaFilters = {
@@ -736,7 +740,7 @@ const Invest = () => {
       minPrice: parseInt(filters.minPrice) || 0,
       maxPrice: parseInt(filters.maxPrice) || 1000000,
       propertyTypes: filters.propertyType ? [filters.propertyType] : ['semi-detached', 'detached', 'terraced', 'bungalow'],
-      includeKeywords: ['potential', 'renovation', 'opportunity', 'cash only'],
+      includeKeywords: [], // Empty array instead of specific keywords
       excludeKeywords: ['new home', 'retirement', 'shared ownership', 'auction', 'flat', 'apartment'],
       findPropertiesInBadCondition: !!filters.findPropertiesInBadCondition
     };
@@ -749,19 +753,22 @@ const Invest = () => {
     const searchToast = toast.loading(`Searching for properties near ${locationName}...`);
     
     console.log("Fetching properties with params:", {
+      postcode: isPostcode ? filters.location : undefined,
       latitude,
       longitude,
       radius,
       filters: patmaFilters
     });
     
-    // Fetch property data from PaTMa API with the correct coordinates
+    // Fetch property data from PaTMa API
+    // If we have a postcode, pass it to the API along with coordinates
     const patmaResults = await fetchPatmaPropertyData(
       latitude,
       longitude,
       radius,
       patmaFilters,
-      true // bypass cache
+      true, // bypass cache
+      isPostcode ? filters.location : undefined // Pass postcode if available
     );
     
     console.log(`PaTMa returned ${patmaResults?.length || 0} properties for location near ${locationName}`);

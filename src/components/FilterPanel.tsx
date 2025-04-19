@@ -181,6 +181,7 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
     
     try {
       console.log(`Performing general location search for: "${searchTerm}"`);
+      // Step 1: First get coordinates for the location
       const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchTerm)}&format=json&country=UK&limit=1`);
       const data = await response.json();
       
@@ -192,14 +193,7 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
         
         console.log(`Found coordinates for ${searchTerm}:`, { latitude, longitude });
         
-        // Update filter state with coordinates
-        onFilterChange('latitude', latitude);
-        onFilterChange('longitude', longitude);
-        
-        // Update location input to be more specific if needed (e.g., from suggestion)
-        onFilterChange('location', displayName); 
-        
-        // Get nearest postcode for feedback (optional, could be removed if not needed)
+        // Step 2: Find the nearest postcode using these coordinates
         try {
           const reversePostcodeUrl = `https://api.postcodes.io/postcodes?lon=${longitude}&lat=${latitude}`;
           const postcodeResponse = await fetch(reversePostcodeUrl);
@@ -207,13 +201,28 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
           
           if (postcodeData.status === 200 && postcodeData.result && postcodeData.result.length > 0) {
             const nearestPostcode = postcodeData.result[0].postcode;
+            console.log(`Found nearest postcode for ${searchTerm}: ${nearestPostcode}`);
+            
+            // Step 3: Now use this postcode for property search instead of coordinates
+            // Update filter state with both the postcode and coordinates
+            onFilterChange('latitude', latitude);
+            onFilterChange('longitude', longitude);
+            onFilterChange('location', nearestPostcode); // Set the postcode as the location
+            
             toast.success(`Found location: ${displayName} (${nearestPostcode})`);
-            // Optional: Update location filter with postcode? 
-            // onFilterChange('location', nearestPostcode); 
           } else {
+            // If postcode lookup fails, fall back to using coordinates
+            onFilterChange('latitude', latitude);
+            onFilterChange('longitude', longitude);
+            onFilterChange('location', displayName);
             toast.success(`Found location: ${displayName}`);
           }
-        } catch (e) {
+        } catch (postcodeError) {
+          console.error("Error finding nearest postcode:", postcodeError);
+          // Fall back to using coordinates
+          onFilterChange('latitude', latitude);
+          onFilterChange('longitude', longitude);
+          onFilterChange('location', displayName);
           toast.success(`Found location: ${displayName}`);
         }
         
@@ -344,28 +353,57 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
   const handleSelectSuggestion = (suggestion: LocationSuggestion) => {
     console.log("Selected suggestion:", suggestion);
     
-    // Update location input value and coordinates directly from suggestion
-    onFilterChange('location', suggestion.name);
+    // First, update coordinates directly from suggestion
     onFilterChange('latitude', suggestion.lat);
     onFilterChange('longitude', suggestion.lon);
     
-    addToRecentLocations(suggestion.name);
-    setShowSuggestions(false);
-    toast.success(`Location set to ${suggestion.name}`);
-    
-    // Verify we have valid coordinates
-    if (suggestion.lat && suggestion.lon && suggestion.lat !== 51.507351 && suggestion.lon !== -0.127758) {
-      // Trigger search immediately after selecting a suggestion
-      if (onSearch) {
-        console.log("Triggering search after suggestion selection with coordinates:", {
-          latitude: suggestion.lat,
-          longitude: suggestion.lon
-        });
-        onSearch();
+    // Then try to find the nearest postcode
+    const findNearestPostcode = async () => {
+      try {
+        const reversePostcodeUrl = `https://api.postcodes.io/postcodes?lon=${suggestion.lon}&lat=${suggestion.lat}`;
+        const postcodeResponse = await fetch(reversePostcodeUrl);
+        const postcodeData = await postcodeResponse.json();
+        
+        if (postcodeData.status === 200 && postcodeData.result && postcodeData.result.length > 0) {
+          const nearestPostcode = postcodeData.result[0].postcode;
+          console.log(`Found nearest postcode for ${suggestion.name}: ${nearestPostcode}`);
+          
+          // Update location with postcode
+          onFilterChange('location', nearestPostcode);
+          toast.success(`Location set to ${suggestion.name} (${nearestPostcode})`);
+        } else {
+          // Fall back to using the suggestion name if postcode lookup fails
+          onFilterChange('location', suggestion.name);
+          toast.success(`Location set to ${suggestion.name}`);
+        }
+      } catch (error) {
+        console.error("Error finding nearest postcode:", error);
+        // Fall back to using suggestion name
+        onFilterChange('location', suggestion.name);
+        toast.success(`Location set to ${suggestion.name}`);
       }
-    } else {
-      toast.error("Invalid coordinates for this location. Please try a different location.");
-    }
+      
+      // Add to recent locations
+      addToRecentLocations(suggestion.name);
+      setShowSuggestions(false);
+      
+      // Trigger search with the coordinates
+      if (suggestion.lat && suggestion.lon && suggestion.lat !== 51.507351 && suggestion.lon !== -0.127758) {
+        // Trigger search immediately after selecting a suggestion
+        if (onSearch) {
+          console.log("Triggering search after suggestion selection with coordinates:", {
+            latitude: suggestion.lat,
+            longitude: suggestion.lon
+          });
+          onSearch();
+        }
+      } else {
+        toast.error("Invalid coordinates for this location. Please try a different location.");
+      }
+    };
+    
+    // Execute postcode lookup
+    findNearestPostcode();
   };
 
   // Function to handle selecting a recent location
@@ -401,6 +439,8 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
           // Update filter state with fresh coordinates
           onFilterChange('latitude', newCoordinates.latitude);
           onFilterChange('longitude', newCoordinates.longitude);
+          // Keep the postcode as the location
+          onFilterChange('location', location);
           
           console.log(`Found coordinates for ${location}:`, newCoordinates);
           foundLocation = true;
@@ -417,7 +457,7 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
       } catch (error) {
         console.error("Error validating postcode:", error);
       }
-    } 
+    }
     
     if (!foundLocation) {
       try {
@@ -429,15 +469,43 @@ export const FilterPanel = ({ filters, onFilterChange, onClear, onSearch }: Filt
           newCoordinates.latitude = parseFloat(data[0].lat);
           newCoordinates.longitude = parseFloat(data[0].lon);
           
-          // Update filter state with coordinates
-          onFilterChange('latitude', newCoordinates.latitude);
-          onFilterChange('longitude', newCoordinates.longitude);
-          
-          const displayName = data[0].display_name.split(',').slice(0, 2).join(',');
-          console.log(`Found coordinates for ${location}:`, newCoordinates);
-          
-          toast.success(`Found location: ${displayName}`);
-          foundLocation = true;
+          // Find nearest postcode using these coordinates
+          try {
+            const reversePostcodeUrl = `https://api.postcodes.io/postcodes?lon=${newCoordinates.longitude}&lat=${newCoordinates.latitude}`;
+            const postcodeResponse = await fetch(reversePostcodeUrl);
+            const postcodeData = await postcodeResponse.json();
+            
+            if (postcodeData.status === 200 && postcodeData.result && postcodeData.result.length > 0) {
+              const nearestPostcode = postcodeData.result[0].postcode;
+              console.log(`Found nearest postcode for ${location}: ${nearestPostcode}`);
+              
+              // Update filter state with both postcode and coordinates
+              onFilterChange('latitude', newCoordinates.latitude);
+              onFilterChange('longitude', newCoordinates.longitude);
+              onFilterChange('location', nearestPostcode); // Set the postcode as the location
+              
+              const displayName = data[0].display_name.split(',').slice(0, 2).join(',');
+              toast.success(`Found location: ${displayName} (${nearestPostcode})`);
+              foundLocation = true;
+            } else {
+              // Fall back to coordinates if postcode lookup fails
+              onFilterChange('latitude', newCoordinates.latitude);
+              onFilterChange('longitude', newCoordinates.longitude);
+              
+              const displayName = data[0].display_name.split(',').slice(0, 2).join(',');
+              toast.success(`Found location: ${displayName}`);
+              foundLocation = true;
+            }
+          } catch (postcodeError) {
+            console.error("Error finding nearest postcode:", postcodeError);
+            // Fall back to coordinates
+            onFilterChange('latitude', newCoordinates.latitude);
+            onFilterChange('longitude', newCoordinates.longitude);
+            
+            const displayName = data[0].display_name.split(',').slice(0, 2).join(',');
+            toast.success(`Found location: ${displayName}`);
+            foundLocation = true;
+          }
         }
       } catch (error) {
         console.error("Error in general location search:", error);
